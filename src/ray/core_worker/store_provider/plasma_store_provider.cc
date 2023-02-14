@@ -76,6 +76,31 @@ CoreWorkerPlasmaStoreProvider::CoreWorkerPlasmaStoreProvider(
   }
 }
 
+
+CoreWorkerPlasmaStoreProvider::CoreWorkerPlasmaStoreProvider(
+    const std::string &daemon_addr,
+    uint16_t daemon_port,
+    const std::shared_ptr<raylet::RayletClient> raylet_client,
+    const std::shared_ptr<ReferenceCounter> reference_counter,
+    std::function<Status()> check_signals,
+    bool warmup,
+    std::function<std::string()> get_current_call_site)
+    : raylet_client_(raylet_client),
+      reference_counter_(reference_counter),
+      check_signals_(check_signals) {
+  if (get_current_call_site != nullptr) {
+    get_current_call_site_ = get_current_call_site;
+  } else {
+    get_current_call_site_ = []() { return "<no callsite callback>"; };
+  }
+  object_store_full_delay_ms_ = RayConfig::instance().object_store_full_delay_ms();
+  buffer_tracker_ = std::make_shared<BufferTracker>();
+  RAY_CHECK_OK(store_client_.Connect(daemon_addr, daemon_port));
+  if (warmup) {
+    RAY_CHECK_OK(WarmupStore());
+  }
+}
+
 CoreWorkerPlasmaStoreProvider::~CoreWorkerPlasmaStoreProvider() {
   RAY_IGNORE_EXPR(store_client_.Disconnect());
 }
@@ -151,6 +176,9 @@ Status CoreWorkerPlasmaStoreProvider::Create(const std::shared_ptr<Buffer> &meta
     RAY_RETURN_NOT_OK(status);
   }
   return status;
+}
+
+void CoreWorkerPlasmaStoreProvider::SealBuffer(const std::shared_ptr<Buffer>& data) {
 }
 
 Status CoreWorkerPlasmaStoreProvider::Seal(const ObjectID &object_id) {
@@ -269,6 +297,14 @@ Status CoreWorkerPlasmaStoreProvider::Get(
     const WorkerContext &ctx,
     absl::flat_hash_map<ObjectID, std::shared_ptr<RayObject>> *results,
     bool *got_exception) {
+  if (store_client_.IsGlobalShm()) {
+    std::vector<ObjectID> obj_list;
+    for (const auto& id : object_ids) {
+      obj_list.emplace_back(id);
+    }
+    return GetIfLocal(obj_list, results);
+  }
+
   int64_t batch_size = RayConfig::instance().worker_fetch_request_size();
   std::vector<ObjectID> batch_ids;
   absl::flat_hash_set<ObjectID> remaining(object_ids.begin(), object_ids.end());

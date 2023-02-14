@@ -91,7 +91,9 @@ struct NodeManagerConfig {
   /// The time between reports resources in milliseconds.
   uint64_t report_resources_period_ms;
   /// The store socket name.
-  std::string store_socket_name;
+  //std::string store_socket_name;
+  ObjectStoreConfig object_store_config;
+
   /// The path to the ray temp dir.
   std::string temp_dir;
   /// The path of this ray log dir.

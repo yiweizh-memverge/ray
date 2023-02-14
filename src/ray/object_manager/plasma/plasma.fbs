@@ -63,6 +63,8 @@ enum MessageType:long {
   // Get debugging information from the store.
   PlasmaGetDebugStringRequest,
   PlasmaGetDebugStringReply,
+  PlasmaCXLShmInfoRequest,
+  PlasmaCXLShmInfoReply,
 }
 
 enum PlasmaError:int {
@@ -289,3 +291,16 @@ table PlasmaEvictReply {
   // Number of bytes that have been freed.
   num_bytes: ulong;
 }
+
+table PlasmaCXLShmInfoRequest {
+}
+
+table PlasmaCXLShmInfoReply {
+  server: string;
+  port: int;
+  device_vendor: string;
+  device_model: string;
+  device_serial: string;
+  segment: ulong;
+}
+

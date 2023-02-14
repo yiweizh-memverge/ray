@@ -78,11 +78,15 @@ PlasmaStore::PlasmaStore(instrumented_io_context &main_service,
                          ray::SpillObjectsCallback spill_objects_callback,
                          std::function<void()> object_store_full_callback,
                          ray::AddObjectCallback add_object_callback,
-                         ray::DeleteObjectCallback delete_object_callback)
+                         ray::DeleteObjectCallback delete_object_callback,
+                         uint16_t listen_port,
+                         const CXLShmInfo& cxl)
     : io_context_(main_service),
       socket_name_(socket_name),
       acceptor_(main_service, ParseUrlEndpoint(socket_name)),
+      tcp_acceptor_(main_service, ParseUrlEndpoint(std::string("tcp://0.0.0.0:") + std::to_string(listen_port))),
       socket_(main_service),
+      tcp_socket_(main_service),
       allocator_(allocator),
       fs_monitor_(fs_monitor),
       add_object_callback_(add_object_callback),
@@ -112,7 +116,10 @@ PlasmaStore::PlasmaStore(instrumented_io_context &main_service,
                 mutex_.AssertHeld();
                 this->AddToClientObjectIds(object_id, request->client);
               },
-          [this](const auto &request) { this->ReturnFromGet(request); }) {
+          [this](const auto &request) { this->ReturnFromGet(request); }),
+     listen_port_(listen_port),
+     cxl_shm_info_(cxl) {
+  RAY_LOG(INFO) << "Plasma store listen port: " << listen_port_;
   if (RayConfig::instance().event_stats_print_interval_ms() > 0 &&
       RayConfig::instance().event_stats()) {
     PrintAndRecordDebugDump();
@@ -311,7 +318,7 @@ int PlasmaStore::AbortObject(const ObjectID &object_id,
   return 1;
 }
 
-void PlasmaStore::ConnectClient(const boost::system::error_code &error) {
+void PlasmaStore::ConnectLocalClient(const boost::system::error_code &error) {
   if (!error) {
     // Accept a new local client and dispatch it to the node manager.
     auto new_connection = Client::Create(
@@ -322,7 +329,18 @@ void PlasmaStore::ConnectClient(const boost::system::error_code &error) {
 
   if (error != boost::asio::error::operation_aborted) {
     // We're ready to accept another client.
-    DoAccept();
+    DoAccept(1);
+  }
+}
+
+void PlasmaStore::ConnectTCPClient(const boost::system::error_code &error) {
+  if (!error) {
+    auto new_connection = Client::Create(
+      boost::bind(&PlasmaStore::ProcessMessage, this, ph::_1, ph::_2, ph::_3),
+      std::move(tcp_socket_));
+  }
+  if (error != boost::asio::error::operation_aborted) {
+    DoAccept(2);
   }
 }
 
@@ -472,6 +490,9 @@ Status PlasmaStore::ProcessMessage(const std::shared_ptr<Client> &client,
     RAY_RETURN_NOT_OK(SendGetDebugStringReply(
         client, object_lifecycle_mgr_.EvictionPolicyDebugString()));
   } break;
+  case fb::MessageType::PlasmaCXLShmInfoRequest: {
+    RAY_RETURN_NOT_OK(SendPlasmaCXLShmInfoReply(client, cxl_shm_info_));
+  } break;
   default:
     // This code should be unreachable.
     RAY_CHECK(0);
@@ -479,10 +500,17 @@ Status PlasmaStore::ProcessMessage(const std::shared_ptr<Client> &client,
   return Status::OK();
 }
 
-void PlasmaStore::DoAccept() {
-  acceptor_.async_accept(
-      socket_,
-      boost::bind(&PlasmaStore::ConnectClient, this, boost::asio::placeholders::error));
+void PlasmaStore::DoAccept(int which) {
+  if (which & 1) {
+    acceptor_.async_accept(
+        socket_,
+        boost::bind(&PlasmaStore::ConnectLocalClient, this, boost::asio::placeholders::error));
+  }
+  if ((which & 2) && listen_port_ > 0) {
+    tcp_acceptor_.async_accept(
+      tcp_socket_,
+      boost::bind(&PlasmaStore::ConnectTCPClient, this, boost::asio::placeholders::error));
+  } 
 }
 
 void PlasmaStore::ProcessCreateRequests() {

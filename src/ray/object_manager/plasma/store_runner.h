@@ -17,7 +17,14 @@ class PlasmaStoreRunner {
                     int64_t system_memory,
                     bool hugepages_enabled,
                     std::string plasma_directory,
-                    std::string fallback_directory);
+                    std::string fallback_directory,
+                    uint16_t port = 0,
+                    const std::string& cx_controller = "",
+                    uint16_t cxl_controller_port = 0,
+                    const std::string& cxl_vendor = "",
+                    const std::string& cxl_model = "",
+                    const std::string& cxl_serial = "",
+                    uint64_t cxl_segment = 0);
   void Start(ray::SpillObjectsCallback spill_objects_callback,
              std::function<void()> object_store_full_callback,
              ray::AddObjectCallback add_object_callback,
@@ -43,9 +50,11 @@ class PlasmaStoreRunner {
   std::string plasma_directory_;
   std::string fallback_directory_;
   mutable instrumented_io_context main_service_;
-  std::unique_ptr<PlasmaAllocator> allocator_;
+  std::unique_ptr<IAllocator> allocator_;
   std::unique_ptr<ray::FileSystemMonitor> fs_monitor_;
   std::unique_ptr<PlasmaStore> store_;
+  uint16_t listen_port_;
+  CXLShmInfo cxl_shm_info_;
 };
 
 // We use a global variable for Plasma Store instance here because:

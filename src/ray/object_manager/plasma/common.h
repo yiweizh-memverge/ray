@@ -46,6 +46,17 @@ enum class ObjectState : int {
   PLASMA_SEALED = 2,
 };
 
+struct CXLShmInfo {
+  std::string server;
+  int port = 0;
+  std::string vendor;
+  std::string model;
+  std::string serial;
+  int64_t segment;
+  std::string client_name;
+  std::string client_addr;
+};
+
 // Represents a chunk of allocated memory.
 struct Allocation {
   /// Pointer to the allocated memory.
@@ -95,6 +106,7 @@ struct Allocation {
         mmap_size(0),
         fallback_allocated(false) {}
 
+  friend class CXLShmAllocator;
   friend class PlasmaAllocator;
   friend class DummyAllocator;
   friend struct ObjectLifecycleManagerTest;

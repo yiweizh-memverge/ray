@@ -48,6 +48,18 @@
 
 namespace ray {
 
+struct ObjectStoreConfig {
+  std::string store_socket_name;
+  std::string daemon_addr;
+  int32_t daemon_port = 0;
+  std::string controller_addr;
+  int controller_port;
+  std::string cxl_vendor;
+  std::string cxl_model;
+  std::string cxl_serial;
+  int64_t cxl_segment;
+};
+
 struct ObjectManagerConfig {
   /// The IP address this object manager is running on.
   std::string object_manager_address;
@@ -65,7 +77,7 @@ struct ObjectManagerConfig {
   /// Max object push bytes in flight.
   uint64_t max_bytes_in_flight;
   /// The store socket name.
-  std::string store_socket_name;
+  ObjectStoreConfig object_store_config;
   /// The time in milliseconds to wait until a Push request
   /// fails due to unsatisfied local object. Special value:
   /// Negative: waiting infinitely.
@@ -98,6 +110,7 @@ class ObjectStoreRunner {
   ~ObjectStoreRunner();
 
  private:
+  bool thread_started_ = false;
   std::thread store_thread_;
 };
 

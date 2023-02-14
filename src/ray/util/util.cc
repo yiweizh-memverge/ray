@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <boost/asio/generic/stream_protocol.hpp>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <vector>

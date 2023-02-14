@@ -1353,6 +1353,13 @@ def start_raylet(
     env_updates: Optional[dict] = None,
     node_name: Optional[str] = None,
     webui: Optional[str] = None,
+    plasma_store_port: Optional[int] = 0,
+    cxl_controller_addr: Optional[str] = None,
+    cxl_controller_port: Optional[int] = 0,
+    cxl_vendor: Optional[str] = None,
+    cxl_model: Optional[str] = None,
+    cxl_serial: Optional[str] = None,
+    cxl_segment: Optional[int] = 0,
 ):
     """Start a raylet, which is a combined local scheduler and object manager.
 
@@ -1571,6 +1578,13 @@ def start_raylet(
         f"--ray-debugger-external={1 if ray_debugger_external else 0}",
         f"--gcs-address={gcs_address}",
         f"--session-name={session_name}",
+        f"--plasma_store_port={plasma_store_port}",
+        f"--cxl_controller_addr={cxl_controller_addr}",
+        f"--cxl_controller_port={cxl_controller_port}",
+        f"--cxl_vendor={cxl_vendor}",
+        f"--cxl_model={cxl_model}",
+        f"--cxl_serial={cxl_serial}",
+        f"--cxl_segment={cxl_segment}",
     ]
 
     if worker_port_list is not None:

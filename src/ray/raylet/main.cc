@@ -27,6 +27,15 @@
 
 DEFINE_string(raylet_socket_name, "", "The socket name of raylet.");
 DEFINE_string(store_socket_name, "", "The socket name of object store.");
+DEFINE_string(store_address, "", "The Network address of the store daemon.");
+DEFINE_int32(plasma_store_port, 0, "The listen port the Plasma object store.");
+DEFINE_string(cxl_controller_addr, "", "The Network address of the CXL controller.");
+DEFINE_int32(cxl_controller_port, 0, "The Network port of the CXL controller.");
+DEFINE_string(cxl_vendor, "", "The CXL device vendor.");
+DEFINE_string(cxl_model, "", "The CXL device model.");
+DEFINE_string(cxl_serial, "", "The CXL device serial number.");
+DEFINE_int64(cxl_segment, 0, "The segment ofthe CXL device.");
+
 DEFINE_int32(object_manager_port, -1, "The port of object manager.");
 DEFINE_int32(node_manager_port, -1, "The port of node manager.");
 DEFINE_int32(metrics_agent_port, -1, "The port of metrics agent.");
@@ -212,7 +221,15 @@ int main(int argc, char *argv[]) {
             RayConfig::instance().raylet_report_resources_period_milliseconds();
         node_manager_config.record_metrics_period_ms =
             RayConfig::instance().metrics_report_interval_ms() / 2;
-        node_manager_config.store_socket_name = store_socket_name;
+        node_manager_config.object_store_config.store_socket_name = store_socket_name;
+        node_manager_config.object_store_config.daemon_addr = FLAGS_store_address;
+        node_manager_config.object_store_config.daemon_port = FLAGS_plasma_store_port;
+        node_manager_config.object_store_config.controller_addr = FLAGS_cxl_controller_addr;
+        node_manager_config.object_store_config.controller_port = FLAGS_cxl_controller_port;
+        node_manager_config.object_store_config.cxl_vendor = FLAGS_cxl_vendor;
+        node_manager_config.object_store_config.cxl_model = FLAGS_cxl_model;
+        node_manager_config.object_store_config.cxl_serial = FLAGS_cxl_serial;
+        node_manager_config.object_store_config.cxl_segment = FLAGS_cxl_segment; 
         node_manager_config.temp_dir = temp_dir;
         node_manager_config.log_dir = log_dir;
         node_manager_config.session_dir = session_dir;
@@ -225,7 +242,7 @@ int main(int argc, char *argv[]) {
         ray::ObjectManagerConfig object_manager_config;
         object_manager_config.object_manager_address = node_ip_address;
         object_manager_config.object_manager_port = object_manager_port;
-        object_manager_config.store_socket_name = store_socket_name;
+        object_manager_config.object_store_config = node_manager_config.object_store_config;
 
         object_manager_config.timer_freq_ms =
             RayConfig::instance().object_manager_timer_freq_ms();

@@ -1008,6 +1008,13 @@ class Node:
             env_updates=self._ray_params.env_vars,
             node_name=self._ray_params.node_name,
             webui=self._webui_url,
+            plasma_store_port=self._ray_params.plasma_store_port,
+            cxl_controller_addr=self._ray_params.cxl_controller_addr,
+            cxl_controller_port=self._ray_params.cxl_controller_port,
+            cxl_vendor=self._ray_params.cxl_vendor,
+            cxl_model=self._ray_params.cxl_model,
+            cxl_serial=self._ray_params.cxl_serial,
+            cxl_segment=self._ray_params.cxl_segment,
         )
         assert ray_constants.PROCESS_TYPE_RAYLET not in self.all_processes
         self.all_processes[ray_constants.PROCESS_TYPE_RAYLET] = [process_info]

@@ -664,4 +664,37 @@ Status ReadGetReply(uint8_t *data,
   return Status::OK();
 }
 
+Status SendPlasmaCXLShmInfoRequest(const std::shared_ptr<StoreConn> &store_conn) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaCXLShmInfoRequest(fbb);
+  return PlasmaSend(store_conn, MessageType::PlasmaCXLShmInfoRequest, &fbb, message);
+}
+
+Status SendPlasmaCXLShmInfoReply(const std::shared_ptr<Client> &client, const CXLShmInfo& info) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaCXLShmInfoReply(fbb, fbb.CreateString(info.server), info.port,
+                                                 fbb.CreateString(info.vendor), fbb.CreateString(info.model),
+                                                 fbb.CreateString(info.serial), info.segment);
+  return PlasmaSend(client, MessageType::PlasmaCXLShmInfoReply, &fbb, message);
+}
+
+Status ReadPlasmaCXLShmInfoReply(const uint8_t* data, size_t size,
+                                 std::string* shm_server,
+                                 int32_t* shm_port,
+                                 std::string* cxl_vendor,
+                                 std::string* cxl_model,
+                                 std::string* cxl_serial,
+                                 int64_t* segment) {
+  RAY_DCHECK(data);
+  auto message = flatbuffers::GetRoot<fb::PlasmaCXLShmInfoReply>(data);
+  RAY_DCHECK(VerifyFlatbuffer(message, const_cast<uint8_t*>(data), size));
+  *shm_server = std::string(message->server()->str());
+  *shm_port = message->port();
+  *cxl_vendor = std::string(message->device_vendor()->str());
+  *cxl_model = std::string(message->device_model()->str());
+  *cxl_serial = std::string(message->device_serial()->str());
+  *segment = message->segment();
+  return Status::OK();
+}
+
 }  // namespace plasma

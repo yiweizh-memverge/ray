@@ -368,7 +368,11 @@ NodeManager::NodeManager(instrumented_io_context &io_service,
       [this]() { cluster_task_manager_->ScheduleAndDispatchTasks(); },
       RayConfig::instance().worker_cap_initial_backoff_delay_ms());
 
-  RAY_CHECK_OK(store_client_.Connect(config.store_socket_name.c_str()));
+  if (config.object_store_config.daemon_port == 0) {
+    RAY_CHECK_OK(store_client_.Connect(config.object_store_config.store_socket_name.c_str()));
+  } else {
+    RAY_CHECK_OK(store_client_.Connect(config.object_store_config.daemon_addr, config.object_store_config.daemon_port));
+  }
   // Run the node manger rpc server.
   node_manager_server_.RegisterService(node_manager_service_);
   node_manager_server_.RegisterService(agent_manager_service_);

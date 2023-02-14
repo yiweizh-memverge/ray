@@ -58,3 +58,5 @@ mach_port_t pthread_mach_thread_np(pthread_t);
 // since fd values can get re-used by the operating system.
 #define MEMFD_TYPE std::pair<MEMFD_TYPE_NON_UNIQUE, int64_t>
 #define INVALID_UNIQUE_FD_ID 0
+#define CXL_SHM_FD 9999999
+#define CXL_SHM_ID 9999999

@@ -524,6 +524,41 @@ def debug(address):
     default=False,
     help="If True, the usage stats collection will be disabled.",
 )
+@click.option(
+    "--plasma-store-port",
+    type=int,
+    default=0,
+)
+@click.option(
+    "--cxl-controller-addr",
+    default=None,
+)
+@click.option(
+    "--cxl-controller-port",
+    type=int,
+    default=0,
+)
+@click.option(
+    "--cxl-vendor",
+    type=str,
+    default=None,
+)
+@click.option(
+    "--cxl-model",
+    type=str,
+    default=None,
+)
+@click.option(
+    "--cxl-serial",
+    type=str,
+    default=None,
+)
+@click.option(
+    "--cxl-segment",
+    type=int,
+    default=0,
+)
+ 
 @add_click_logging_options
 @PublicAPI
 def start(
@@ -567,6 +602,13 @@ def start(
     tracing_startup_hook,
     ray_debugger_external,
     disable_usage_stats,
+    plasma_store_port,
+    cxl_controller_addr,
+    cxl_controller_port,
+    cxl_vendor,
+    cxl_model,
+    cxl_serial,
+    cxl_segment,
 ):
     """Start Ray processes manually on the local machine."""
 
@@ -644,6 +686,13 @@ def start(
         no_monitor=no_monitor,
         tracing_startup_hook=tracing_startup_hook,
         ray_debugger_external=ray_debugger_external,
+        plasma_store_port=plasma_store_port,
+        cxl_controller_addr=cxl_controller_addr,
+        cxl_controller_port=cxl_controller_port,
+        cxl_vendor=cxl_vendor,
+        cxl_model=cxl_model,
+        cxl_serial=cxl_serial,
+        cxl_segment=cxl_segment,
     )
 
     if ray_constants.RAY_START_HOOK in os.environ:

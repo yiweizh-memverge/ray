@@ -83,7 +83,7 @@ Raylet::Raylet(instrumented_io_context &main_service,
   self_node_info_.set_node_manager_address(node_ip_address);
   self_node_info_.set_node_name(node_name);
   self_node_info_.set_raylet_socket_name(socket_name);
-  self_node_info_.set_object_store_socket_name(object_manager_config.store_socket_name);
+  self_node_info_.set_object_store_socket_name(object_manager_config.object_store_config.store_socket_name);
   self_node_info_.set_object_manager_port(node_manager_.GetObjectManagerPort());
   self_node_info_.set_node_manager_port(node_manager_.GetServerPort());
   self_node_info_.set_node_manager_hostname(boost::asio::ip::host_name());

@@ -304,13 +304,14 @@ PLASMA_COPTS = COPTS + select({
     ],
 })
 
-PLASMA_LINKOPTS = [] + select({
+PLASMA_LINKOPTS = ["-lcxl_shm_api",] + select({
     "@bazel_tools//src/conditions:windows": [
         "-DefaultLib:" + "ws2_32.lib",
     ],
     "//conditions:default": [
     ],
 })
+
 
 cc_library(
     name = "plasma_client",
@@ -339,6 +340,8 @@ cc_library(
         "src/ray/object_manager/plasma/plasma_generated.h",
         "src/ray/object_manager/plasma/protocol.h",
         "src/ray/object_manager/plasma/shared_memory.h",
+        "src/ray/object_manager/cxl_include/cxl_shared_memory_datatype.h",
+        "src/ray/object_manager/cxl_include/cxl_shared_memory_client.h",
     ] + select({
         "@bazel_tools//src/conditions:windows": [
         ],
@@ -375,6 +378,7 @@ cc_library(
         "src/ray/object_manager/plasma/stats_collector.cc",
         "src/ray/object_manager/plasma/store.cc",
         "src/ray/object_manager/plasma/store_runner.cc",
+        "src/ray/object_manager/plasma/cxl_allocator.cc",
     ],
     hdrs = [
         "src/ray/object_manager/common.h",
@@ -389,6 +393,9 @@ cc_library(
         "src/ray/object_manager/plasma/store.h",
         "src/ray/object_manager/plasma/store_runner.h",
         "src/ray/thirdparty/dlmalloc.c",
+        "src/ray/object_manager/plasma/cxl_allocator.h",
+        "src/ray/object_manager/cxl_include/cxl_shared_memory_client.h",
+        "src/ray/object_manager/cxl_include/cxl_shared_memory_datatype.h",
     ],
     copts = PLASMA_COPTS,
     linkopts = PLASMA_LINKOPTS,
@@ -507,6 +514,12 @@ cc_binary(
     srcs = ["src/ray/raylet/main.cc"],
     copts = COPTS,
     visibility = ["//java:__subpackages__"],
+    linkopts = select({
+        "//conditions:default": [
+            "-lstdc++fs",
+        ],
+    }),
+
     deps = [
         ":ray_util",
         ":raylet_lib",
@@ -577,6 +590,12 @@ cc_binary(
         "src/ray/gcs/gcs_server/gcs_server_main.cc",
     ],
     copts = COPTS,
+    linkopts = select({
+        "//conditions:default": [
+            "-lstdc++fs",
+        ],
+    }),
+
     visibility = ["//java:__subpackages__"],
     deps = [
         ":gcs_server_lib",

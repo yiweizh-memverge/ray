@@ -36,6 +36,8 @@
 #include "ray/object_manager/plasma/plasma.h"
 #include "ray/object_manager/plasma/protocol.h"
 #include "ray/object_manager/plasma/shared_memory.h"
+#include "ray/object_manager/cxl_include/cxl_shared_memory_client.h"
+#include "ray/object_manager/cxl_include/cxl_shared_memory_datatype.h"
 
 namespace fb = plasma::flatbuf;
 
@@ -103,6 +105,11 @@ class PlasmaClient::Impl : public std::enable_shared_from_this<PlasmaClient::Imp
 
   // PlasmaClient method implementations
 
+  Status Connect(const std::string& server, int port,
+                 const std::string &manager_socket_name,
+                 int release_delay = 0,
+                 int num_retries = -1);
+
   Status Connect(const std::string &store_socket_name,
                  const std::string &manager_socket_name,
                  int release_delay = 0,
@@ -151,6 +158,8 @@ class PlasmaClient::Impl : public std::enable_shared_from_this<PlasmaClient::Imp
 
   Status Abort(const ObjectID &object_id);
 
+  Status SealBuffer(const ObjectBuffer& buff);
+
   Status Seal(const ObjectID &object_id);
 
   Status Delete(const std::vector<ObjectID> &object_ids);
@@ -165,6 +174,7 @@ class PlasmaClient::Impl : public std::enable_shared_from_this<PlasmaClient::Imp
 
   int64_t store_capacity() { return store_capacity_; }
 
+  bool IsGlobalShm() { return is_global_shm_; } 
  private:
   /// Helper method to read and process the reply of a create request.
   Status HandleCreateReply(const ObjectID &object_id,
@@ -224,6 +234,9 @@ class PlasmaClient::Impl : public std::enable_shared_from_this<PlasmaClient::Imp
   std::unordered_set<ObjectID> deletion_cache_;
   /// A mutex which protects this class.
   std::recursive_mutex client_mutex_;
+
+  bool is_global_shm_ = false;
+  std::shared_ptr<memverge::cxl::shared_memory::CXLSharedSegmentInf> cxl_shm_;
 };
 
 PlasmaBuffer::~PlasmaBuffer() { RAY_UNUSED(client_->Release(object_id_)); }
@@ -244,13 +257,18 @@ uint8_t *PlasmaClient::Impl::GetStoreFdAndMmap(MEMFD_TYPE store_fd_val,
     MEMFD_TYPE fd;
     RAY_CHECK_OK(store_conn_->RecvFd(&fd.first));
     fd.second = store_fd_val.second;
-    // Close and erase the old duplicated fd entry that is no longer needed.
-    if (dedup_fd_table_.find(store_fd_val.first) != dedup_fd_table_.end()) {
-      RAY_LOG(INFO) << "Erasing re-used mmap entry for fd " << store_fd_val.first;
-      mmap_table_.erase(dedup_fd_table_[store_fd_val.first]);
+    if (store_fd_val.first == CXL_SHM_FD) {
+      mmap_table_[store_fd_val] =
+        std::unique_ptr<ClientMmapTableEntry>(new ClientMmapTableEntry(fd, reinterpret_cast<uint8_t*>(cxl_shm_->BaseMapAddr()), cxl_shm_->Size()));
+    } else {
+      // Close and erase the old duplicated fd entry that is no longer needed.
+      if (dedup_fd_table_.find(store_fd_val.first) != dedup_fd_table_.end()) {
+        RAY_LOG(INFO) << "Erasing re-used mmap entry for fd " << store_fd_val.first;
+        mmap_table_.erase(dedup_fd_table_[store_fd_val.first]);
+      }
+      dedup_fd_table_[store_fd_val.first] = store_fd_val;
+      mmap_table_[store_fd_val] = std::make_unique<ClientMmapTableEntry>(fd, map_size);
     }
-    dedup_fd_table_[store_fd_val.first] = store_fd_val;
-    mmap_table_[store_fd_val] = std::make_unique<ClientMmapTableEntry>(fd, map_size);
     return mmap_table_[store_fd_val]->pointer();
   }
 }
@@ -622,6 +640,13 @@ Status PlasmaClient::Impl::Contains(const ObjectID &object_id, bool *has_object)
   return Status::OK();
 }
 
+Status PlasmaClient::Impl::SealBuffer(const ObjectBuffer& buff) {
+  if (!cxl_shm_) return Status::OK();
+  cxl_shm_->MemBarrier(buff.data->Data(), buff.data->Size());
+  cxl_shm_->MemBarrier(buff.metadata->Data(), buff.metadata->Size());
+  return Status::OK();
+}
+ 
 Status PlasmaClient::Impl::Seal(const ObjectID &object_id) {
   std::lock_guard<std::recursive_mutex> guard(client_mutex_);
 
@@ -716,6 +741,14 @@ Status PlasmaClient::Impl::Evict(int64_t num_bytes, int64_t &num_bytes_evicted) 
   return ReadEvictReply(buffer.data(), buffer.size(), num_bytes_evicted);
 }
 
+Status PlasmaClient::Impl::Connect(const std::string& server, int port,
+                                   const std::string &manager_socket_name,
+                                   int release_delay,
+                                   int num_retries) {
+  std::string endpoint = "tcp://" + server + ":" + std::to_string(port);
+  return Connect(endpoint, manager_socket_name, release_delay, num_retries);
+}
+
 Status PlasmaClient::Impl::Connect(const std::string &store_socket_name,
                                    const std::string &manager_socket_name,
                                    int release_delay,
@@ -731,6 +764,33 @@ Status PlasmaClient::Impl::Connect(const std::string &store_socket_name,
   std::vector<uint8_t> buffer;
   RAY_RETURN_NOT_OK(PlasmaReceive(store_conn_, MessageType::PlasmaConnectReply, &buffer));
   RAY_RETURN_NOT_OK(ReadConnectReply(buffer.data(), buffer.size(), &store_capacity_));
+  // GET CXL data
+  buffer.clear();
+  RAY_RETURN_NOT_OK(SendPlasmaCXLShmInfoRequest(store_conn_));
+  RAY_RETURN_NOT_OK(PlasmaReceive(store_conn_, MessageType::PlasmaCXLShmInfoReply, &buffer));
+  std::string shm_server;
+  memverge::cxl::shared_memory::CXLDeviceInfo cxl_dev;
+  int64_t segment;
+  int32_t port;
+  RAY_RETURN_NOT_OK(ReadPlasmaCXLShmInfoReply(buffer.data(), buffer.size(), &shm_server, &port,
+                                              &cxl_dev.vendor, &cxl_dev.model, &cxl_dev.serial, &segment));
+  if (shm_server.empty() || port == 0) return Status::OK();
+  std::shared_ptr<memverge::cxl::shared_memory::CXLSharedMemoryClient> client;
+  int ret = memverge::cxl::shared_memory::CXLSharedMemoryClient::ConnectServer(
+    shm_server, port, "Ray_client", "Ray_client_addr", &client);
+  if (ret) {
+    return Status::IOError("Failed to connect CXL controller"); 
+  }
+  ret = client->AttachCXLSegment(cxl_dev, segment, true, &cxl_shm_);
+  if (ret) {
+    return Status::IOError("Failed to attach the CXL segment");
+  }
+  MEMFD_TYPE store_fd_val;
+  store_fd_val.first = CXL_SHM_FD;
+  store_fd_val.second = CXL_SHM_ID; 
+  mmap_table_[store_fd_val] =
+        std::unique_ptr<ClientMmapTableEntry>(new ClientMmapTableEntry(store_fd_val, reinterpret_cast<uint8_t*>(cxl_shm_->BaseMapAddr()), cxl_shm_->Size()));
+  is_global_shm_ = true; 
   return Status::OK();
 }
 
@@ -770,6 +830,10 @@ PlasmaClient::PlasmaClient() : impl_(std::make_shared<PlasmaClient::Impl>()) {}
 
 PlasmaClient::~PlasmaClient() {}
 
+bool PlasmaClient::IsGlobalShm() {
+  return impl_->IsGlobalShm();
+}
+
 Status PlasmaClient::Connect(const std::string &store_socket_name,
                              const std::string &manager_socket_name,
                              int release_delay,
@@ -777,6 +841,15 @@ Status PlasmaClient::Connect(const std::string &store_socket_name,
   return impl_->Connect(
       store_socket_name, manager_socket_name, release_delay, num_retries);
 }
+
+Status PlasmaClient::Connect(const std::string& server, int port,
+                             const std::string& manager_socket_name,
+                             int release_delay,
+                             int num_retries) {
+  return impl_->Connect(server, port, manager_socket_name,
+                        release_delay, num_retries);
+}
+
 
 Status PlasmaClient::CreateAndSpillIfNeeded(const ObjectID &object_id,
                                             const ray::rpc::Address &owner_address,
@@ -830,6 +903,10 @@ Status PlasmaClient::Contains(const ObjectID &object_id, bool *has_object) {
 }
 
 Status PlasmaClient::Abort(const ObjectID &object_id) { return impl_->Abort(object_id); }
+
+Status PlasmaClient::SealBuffer(const ObjectBuffer& buff) {
+  return impl_->SealBuffer(buff);
+}
 
 Status PlasmaClient::Seal(const ObjectID &object_id) { return impl_->Seal(object_id); }
 

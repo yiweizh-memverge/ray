@@ -11,6 +11,8 @@ namespace plasma {
 
 class ClientMmapTableEntry {
  public:
+  ClientMmapTableEntry(MEMFD_TYPE fd, uint8_t* ptr, size_t len);
+
   ClientMmapTableEntry(MEMFD_TYPE fd, int64_t map_size);
 
   ~ClientMmapTableEntry();

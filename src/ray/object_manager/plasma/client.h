@@ -82,6 +82,8 @@ class PlasmaClientInterface {
                      std::vector<ObjectBuffer> *object_buffers,
                      bool is_from_worker) = 0;
 
+  virtual Status SealBuffer(const ObjectBuffer& buff) = 0;
+
   /// Seal an object in the object store. The object will be immutable after
   /// this
   /// call.
@@ -147,6 +149,11 @@ class PlasmaClient : public PlasmaClientInterface {
  public:
   PlasmaClient();
   ~PlasmaClient();
+
+  Status Connect(const std::string& server, int port,
+                 const std::string& manager_socket_name = "",
+                 int release_delay = 0,
+                 int num_retries = -1);
 
   /// Connect to the local plasma store. Return the resulting connection.
   ///
@@ -284,6 +291,7 @@ class PlasmaClient : public PlasmaClientInterface {
   /// \return The return status.
   Status Abort(const ObjectID &object_id);
 
+  Status SealBuffer(const ObjectBuffer& buff);
   /// Seal an object in the object store. The object will be immutable after
   /// this
   /// call.
@@ -336,6 +344,7 @@ class PlasmaClient : public PlasmaClientInterface {
   /// \return Memory capacity of the store in bytes.
   int64_t store_capacity();
 
+  bool IsGlobalShm();
  private:
   /// Retry a previous create call using the returned request ID.
   ///

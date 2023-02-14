@@ -63,7 +63,9 @@ class PlasmaStore {
               ray::SpillObjectsCallback spill_objects_callback,
               std::function<void()> object_store_full_callback,
               ray::AddObjectCallback add_object_callback,
-              ray::DeleteObjectCallback delete_object_callback);
+              ray::DeleteObjectCallback delete_object_callback,
+              uint16_t listen_port,
+              const CXLShmInfo& cxl);
 
   ~PlasmaStore();
 
@@ -185,7 +187,10 @@ class PlasmaStore {
   /// Connect a new client to the PlasmaStore.
   ///
   /// \param error The error code from the acceptor.
-  void ConnectClient(const boost::system::error_code &error)
+  void ConnectLocalClient(const boost::system::error_code &error)
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+
+  void ConnectTCPClient(const boost::system::error_code &error)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   /// Disconnect a client from the PlasmaStore.
@@ -220,7 +225,7 @@ class PlasmaStore {
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   // Start listening for clients.
-  void DoAccept();
+  void DoAccept(int who = 3);
 
   void PrintAndRecordDebugDump() const LOCKS_EXCLUDED(mutex_);
 
@@ -237,8 +242,10 @@ class PlasmaStore {
   std::string socket_name_;
   /// An acceptor for new clients.
   boost::asio::basic_socket_acceptor<ray::local_stream_protocol> acceptor_;
+  boost::asio::basic_socket_acceptor<ray::local_stream_protocol> tcp_acceptor_;
   /// The socket to listen on for new clients.
   ray::local_stream_socket socket_;
+  ray::local_stream_socket tcp_socket_;
 
   /// This mutex is used in order to make plasma store threas-safe with raylet.
   /// Raylet's local_object_manager needs to ping access plasma store's method in order to
@@ -295,6 +302,8 @@ class PlasmaStore {
   bool dumped_on_oom_ GUARDED_BY(mutex_) = false;
 
   GetRequestQueue get_request_queue_ GUARDED_BY(mutex_);
+  uint16_t listen_port_;
+  CXLShmInfo cxl_shm_info_;
 };
 
 }  // namespace plasma

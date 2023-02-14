@@ -95,6 +95,15 @@ class CoreWorkerPlasmaStoreProvider {
       bool warmup,
       std::function<std::string()> get_current_call_site = nullptr);
 
+  CoreWorkerPlasmaStoreProvider(
+      const std::string &daemon_addr,
+      uint16_t daemon_port,
+      const std::shared_ptr<raylet::RayletClient> raylet_client,
+      const std::shared_ptr<ReferenceCounter> reference_counter,
+      std::function<Status()> check_signals,
+      bool warmup,
+      std::function<std::string()> get_current_call_site = nullptr);
+
   ~CoreWorkerPlasmaStoreProvider();
 
   /// Create and seal an object.
@@ -137,6 +146,7 @@ class CoreWorkerPlasmaStoreProvider {
   /// argument to Get to retrieve the object data.
   Status Seal(const ObjectID &object_id);
 
+  void SealBuffer(const std::shared_ptr<Buffer>& data);
   /// Release the first reference to the object created by Put() or Create(). This should
   /// be called exactly once per object and until it is called, the object is pinned and
   /// cannot be evicted.

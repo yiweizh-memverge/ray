@@ -9,6 +9,7 @@
 
 #include "ray/common/ray_config.h"
 #include "ray/object_manager/plasma/plasma_allocator.h"
+#include "ray/object_manager/plasma/cxl_allocator.h"
 
 namespace plasma {
 namespace internal {
@@ -19,12 +20,39 @@ PlasmaStoreRunner::PlasmaStoreRunner(std::string socket_name,
                                      int64_t system_memory,
                                      bool hugepages_enabled,
                                      std::string plasma_directory,
-                                     std::string fallback_directory)
-    : hugepages_enabled_(hugepages_enabled) {
+                                     std::string fallback_directory,
+                                     uint16_t port,
+                                     const std::string& cx_controller,
+                                     uint16_t cxl_controller_port,
+                                     const std::string& cxl_vendor,
+                                     const std::string& cxl_model,
+                                     const std::string& cxl_serial,
+                                     uint64_t cxl_segment)
+    : hugepages_enabled_(hugepages_enabled),
+      listen_port_(port) {
   // Sanity check.
   if (socket_name.empty()) {
     RAY_LOG(FATAL) << "please specify socket for incoming connections with -s switch";
   }
+  cxl_shm_info_.server = cx_controller;
+  cxl_shm_info_.port = cxl_controller_port;
+  cxl_shm_info_.vendor = cxl_vendor;
+  cxl_shm_info_.model = cxl_model;
+  cxl_shm_info_.serial = cxl_serial;
+  cxl_shm_info_.segment = cxl_segment;
+  cxl_shm_info_.client_name = "Ray_plasma";
+  cxl_shm_info_.client_addr = "Ray_plasma_addr";
+  if (listen_port_ == 0) {
+    cxl_shm_info_.port = 0;
+    cxl_shm_info_.server = "";
+    RAY_LOG(INFO) << "The listen port is 0. Disable CXL shared memory";
+  }
+  if (cxl_shm_info_.server.empty() || cxl_shm_info_.port == 0 ||
+      cxl_shm_info_.model.empty() || cxl_shm_info_.vendor.empty() ||
+      cxl_shm_info_.serial.empty()) {
+    listen_port_ = 0;
+    RAY_LOG(INFO) << "The CXL shared memory parameters are invalid. Disable CXL shared memory";
+  } 
   socket_name_ = socket_name;
   if (system_memory == -1) {
     RAY_LOG(FATAL) << "please specify the amount of system memory with -m switch";
@@ -88,8 +116,23 @@ void PlasmaStoreRunner::Start(ray::SpillObjectsCallback spill_objects_callback,
   RAY_LOG(DEBUG) << "starting server listening on " << socket_name_;
   {
     absl::MutexLock lock(&store_runner_mutex_);
-    allocator_ = std::make_unique<PlasmaAllocator>(
-        plasma_directory_, fallback_directory_, hugepages_enabled_, system_memory_);
+    if (cxl_shm_info_.port == 0) {
+      RAY_LOG(INFO) << "Start Plasma store with local shared memory";
+      allocator_ = std::make_unique<PlasmaAllocator>(
+          plasma_directory_, fallback_directory_, hugepages_enabled_, system_memory_);
+    } else {
+      RAY_LOG(INFO) << "Start Plasma with CXL shared memory";
+      allocator_ = std::unique_ptr<IAllocator>(
+          new CXLShmAllocator(system_memory_,
+                              cxl_shm_info_.server,
+                              cxl_shm_info_.port,
+                              cxl_shm_info_.client_name,
+                              cxl_shm_info_.client_addr,
+                              cxl_shm_info_.vendor,
+                              cxl_shm_info_.model,
+                              cxl_shm_info_.serial,
+                              cxl_shm_info_.segment)); 
+    }
 #ifndef _WIN32
     std::vector<std::string> local_spilling_paths;
     if (RayConfig::instance().is_external_storage_type_fs()) {
@@ -114,7 +157,9 @@ void PlasmaStoreRunner::Start(ray::SpillObjectsCallback spill_objects_callback,
                                  spill_objects_callback,
                                  object_store_full_callback,
                                  add_object_callback,
-                                 delete_object_callback));
+                                 delete_object_callback,
+                                 listen_port_,
+                                 cxl_shm_info_));
     store_->Start();
   }
   main_service_.run();

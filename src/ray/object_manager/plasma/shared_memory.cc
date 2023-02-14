@@ -13,6 +13,10 @@
 
 namespace plasma {
 
+ClientMmapTableEntry::ClientMmapTableEntry(MEMFD_TYPE fd, uint8_t* ptr, size_t len) 
+    : fd_(fd), pointer_(ptr), length_(len) {
+}
+
 ClientMmapTableEntry::ClientMmapTableEntry(MEMFD_TYPE fd, int64_t map_size)
     : fd_(fd), pointer_(nullptr), length_(0) {
   // We subtract kMmapRegionsGap from the length that was added
@@ -68,6 +72,7 @@ ClientMmapTableEntry::~ClientMmapTableEntry() {
   // We don't need to close the associated file, since it has
   // already been closed in the constructor.
   int r;
+  if (fd_.first == CXL_SHM_FD) return;
 #ifdef _WIN32
   r = UnmapViewOfFile(pointer_) ? 0 : -1;
 #else

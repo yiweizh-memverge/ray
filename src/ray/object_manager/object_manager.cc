@@ -29,25 +29,30 @@ ObjectStoreRunner::ObjectStoreRunner(const ObjectManagerConfig &config,
                                      std::function<void()> object_store_full_callback,
                                      AddObjectCallback add_object_callback,
                                      DeleteObjectCallback delete_object_callback) {
-  plasma::plasma_store_runner.reset(
-      new plasma::PlasmaStoreRunner(config.store_socket_name,
-                                    config.object_store_memory,
-                                    config.huge_pages,
-                                    config.plasma_directory,
-                                    config.fallback_directory));
-  // Initialize object store.
-  store_thread_ = std::thread(&plasma::PlasmaStoreRunner::Start,
-                              plasma::plasma_store_runner.get(),
-                              spill_objects_callback,
-                              object_store_full_callback,
-                              add_object_callback,
-                              delete_object_callback);
-  // Sleep for sometime until the store is working. This can suppress some
-  // connection warnings.
-  std::this_thread::sleep_for(std::chrono::microseconds(500));
+  if (config.object_store_config.daemon_port == 0 || 
+      config.object_store_config.controller_port == 0) {
+    plasma::plasma_store_runner.reset(
+        new plasma::PlasmaStoreRunner(config.object_store_config.store_socket_name,
+                                      config.object_store_memory,
+                                      config.huge_pages,
+                                      config.plasma_directory,
+                                      config.fallback_directory));
+    // Initialize object store.
+    store_thread_ = std::thread(&plasma::PlasmaStoreRunner::Start,
+                                plasma::plasma_store_runner.get(),
+                                spill_objects_callback,
+                                object_store_full_callback,
+                                add_object_callback,
+                                delete_object_callback);
+    // Sleep for sometime until the store is working. This can suppress some
+    // connection warnings.
+    std::this_thread::sleep_for(std::chrono::microseconds(500));
+    thread_started_ = true;
+  }
 }
 
 ObjectStoreRunner::~ObjectStoreRunner() {
+  if (!thread_started_) return;
   plasma::plasma_store_runner->Stop();
   store_thread_.join();
   plasma::plasma_store_runner.reset();
@@ -150,7 +155,7 @@ ObjectManager::ObjectManager(
                                       get_spilled_object_url));
 
   RAY_CHECK_OK(
-      buffer_pool_store_client_->Connect(config_.store_socket_name.c_str(), "", 0, 300));
+      buffer_pool_store_client_->Connect(config_.object_store_config.store_socket_name.c_str(), "", 0, 300));
 
   // Start object manager rpc server and send & receive request threads
   StartRpcService();

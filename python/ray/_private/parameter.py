@@ -180,6 +180,13 @@ class RayParams:
         env_vars: Optional[Dict[str, str]] = None,
         session_name: Optional[str] = None,
         webui: Optional[str] = None,
+        plasma_store_port: Optional[int] = 0,
+        cxl_controller_addr: Optional[str] = None,
+        cxl_controller_port: Optional[int] = 0,
+        cxl_vendor: Optional[str] = None,
+        cxl_model: Optional[str] = None,
+        cxl_serial: Optional[str] = None,
+        cxl_segment: Optional[int] = 0,
     ):
         self.redis_address = redis_address
         self.gcs_address = gcs_address
@@ -241,6 +248,13 @@ class RayParams:
         self._system_config = _system_config or {}
         self._enable_object_reconstruction = enable_object_reconstruction
         self._check_usage()
+        self.plasma_store_port = plasma_store_port
+        self.cxl_controller_addr = cxl_controller_addr
+        self.cxl_controller_port = cxl_controller_port
+        self.cxl_vendor = cxl_vendor
+        self.cxl_model = cxl_model
+        self.cxl_serial = cxl_serial
+        self.cxl_segment = cxl_segment
 
         # Set the internal config options for object reconstruction.
         if enable_object_reconstruction:

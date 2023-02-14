@@ -47,6 +47,8 @@ class MockPlasmaClient : public plasma::PlasmaClientInterface {
                            std::vector<plasma::ObjectBuffer> *object_buffers,
                            bool is_from_worker));
 
+  MOCK_METHOD1(SealBuffer, ray::Status(const plasma::ObjectBuffer& buff));
+ 
   MOCK_METHOD1(Seal, ray::Status(const ObjectID &object_id));
 
   MOCK_METHOD1(Abort, ray::Status(const ObjectID &object_id));

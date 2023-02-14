@@ -228,4 +228,16 @@ Status SendEvictReply(const std::shared_ptr<Client> &client, int64_t num_bytes);
 
 Status ReadEvictReply(uint8_t *data, size_t size, int64_t &num_bytes);
 
+Status SendPlasmaCXLShmInfoRequest(const std::shared_ptr<StoreConn> &store_conn);
+
+Status SendPlasmaCXLShmInfoReply(const std::shared_ptr<Client> &client, const CXLShmInfo& info);
+
+Status ReadPlasmaCXLShmInfoReply(const uint8_t* data, size_t size,
+                                 std::string* shm_server,
+                                 int32_t* shm_port,
+                                 std::string* cxl_vendor,
+                                 std::string* cxl_model,
+                                 std::string* cxl_serial,
+                                 int64_t* segment);
+
 }  // namespace plasma

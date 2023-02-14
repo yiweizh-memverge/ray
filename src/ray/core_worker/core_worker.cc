@@ -302,16 +302,29 @@ CoreWorker::CoreWorker(const CoreWorkerOptions &options, const WorkerID &worker_
     }
   };
   RAY_CHECK_OK(gcs_client_->Nodes().AsyncSubscribeToNodeChange(on_node_change, nullptr));
+  if (options_.store_port == 0 || options_.store_addr.empty()) {
+    plasma_store_provider_.reset(new CoreWorkerPlasmaStoreProvider(
+        options_.store_socket,
+        local_raylet_client_,
+        reference_counter_,
+        options_.check_signals,
+        /*warmup=*/
+        (options_.worker_type != WorkerType::SPILL_WORKER &&
+         options_.worker_type != WorkerType::RESTORE_WORKER),
+        /*get_current_call_site=*/boost::bind(&CoreWorker::CurrentCallSite, this)));
+  } else {
+    plasma_store_provider_.reset(new CoreWorkerPlasmaStoreProvider(
+        options_.store_addr,
+        options_.store_port,
+        local_raylet_client_,
+        reference_counter_,
+        options_.check_signals,
+        /*warmup=*/
+        (options_.worker_type != WorkerType::SPILL_WORKER &&
+         options_.worker_type != WorkerType::RESTORE_WORKER),
+        /*get_current_call_site=*/boost::bind(&CoreWorker::CurrentCallSite, this)));
 
-  plasma_store_provider_.reset(new CoreWorkerPlasmaStoreProvider(
-      options_.store_socket,
-      local_raylet_client_,
-      reference_counter_,
-      options_.check_signals,
-      /*warmup=*/
-      (options_.worker_type != WorkerType::SPILL_WORKER &&
-       options_.worker_type != WorkerType::RESTORE_WORKER),
-      /*get_current_call_site=*/boost::bind(&CoreWorker::CurrentCallSite, this)));
+  }
   memory_store_.reset(new CoreWorkerMemoryStore(
       reference_counter_,
       local_raylet_client_,
