@@ -36,8 +36,10 @@ ObjectStoreRunner::ObjectStoreRunner(const ObjectManagerConfig &config,
                                     config.plasma_directory,
                                     config.fallback_directory));
   // Initialize object store.
+  std::map<std::string, std::string> emptyMap;
   store_thread_ = std::thread(&plasma::PlasmaStoreRunner::Start,
                               plasma::plasma_store_runner.get(),
+                              std::ref(emptyMap),
                               spill_objects_callback,
                               object_store_full_callback,
                               add_object_callback,
@@ -160,7 +162,7 @@ void ObjectManager::Stop() {
 }
 
 bool ObjectManager::IsPlasmaObjectSpillable(const ObjectID &object_id) {
-  return plasma::plasma_store_runner->IsPlasmaObjectSpillable(object_id);
+  return plasma::plasma_store_runner->IsObjectSpillable(object_id);
 }
 
 void ObjectManager::RunRpcService(int index) {

@@ -330,6 +330,7 @@ cc_library(
     }),
     hdrs = [
         "src/ray/object_manager/common.h",
+        "src/ray/object_manager/plasma/object_store_client_interface.h",
         "src/ray/object_manager/plasma/client.h",
         "src/ray/object_manager/plasma/common.h",
         "src/ray/object_manager/plasma/compat.h",
@@ -387,6 +388,7 @@ cc_library(
         "src/ray/object_manager/plasma/plasma_allocator.h",
         "src/ray/object_manager/plasma/stats_collector.h",
         "src/ray/object_manager/plasma/store.h",
+        "src/ray/object_manager/plasma/object_store_runner_interface.h",
         "src/ray/object_manager/plasma/store_runner.h",
         "src/ray/thirdparty/dlmalloc.c",
     ],

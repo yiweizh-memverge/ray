@@ -22,6 +22,7 @@
 #include "ray/core_worker/common.h"
 #include "ray/core_worker/context.h"
 #include "ray/core_worker/reference_count.h"
+#include "ray/object_manager/plasma/object_store_client_interface.h"
 #include "ray/object_manager/plasma/client.h"
 #include "ray/raylet_client/raylet_client.h"
 

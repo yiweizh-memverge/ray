@@ -8,28 +8,36 @@
 #include "ray/common/file_system_monitor.h"
 #include "ray/object_manager/plasma/plasma_allocator.h"
 #include "ray/object_manager/plasma/store.h"
+#include "ray/object_manager/plasma/object_store_runner_interface.h"
 
 namespace plasma {
 
-class PlasmaStoreRunner {
+class PlasmaStoreRunner : public ObjectStoreRunnerInterface {
  public:
   PlasmaStoreRunner(std::string socket_name,
                     int64_t system_memory,
                     bool hugepages_enabled,
                     std::string plasma_directory,
                     std::string fallback_directory);
-  void Start(ray::SpillObjectsCallback spill_objects_callback,
+  
+  void Start(const std::map<std::string, std::string>& params,
+             ray::SpillObjectsCallback spill_objects_callback,
              std::function<void()> object_store_full_callback,
              ray::AddObjectCallback add_object_callback,
-             ray::DeleteObjectCallback delete_object_callback);
-  void Stop();
+             ray::DeleteObjectCallback delete_object_callback) override;
 
-  bool IsPlasmaObjectSpillable(const ObjectID &object_id);
+  void Stop() override;
 
-  int64_t GetConsumedBytes();
-  int64_t GetFallbackAllocated() const;
+  bool IsObjectSpillable(const ObjectID &object_id) override;
 
-  void GetAvailableMemoryAsync(std::function<void(size_t)> callback) const {
+  int64_t GetConsumedBytes() override;
+  int64_t GetFallbackAllocated() const override;
+
+    // The total memor size may be the same as the max memory size
+  int64_t GetTotalMemorySize() const override { return system_memory_; };
+  int64_t GetMaxMemorySize() const override { return system_memory_; };
+
+  void GetAvailableMemoryAsync(std::function<void(size_t)> callback) const  override{
     main_service_.post([this, callback]() { store_->GetAvailableMemory(callback); },
                        "PlasmaStoreRunner.GetAvailableMemory");
   }
