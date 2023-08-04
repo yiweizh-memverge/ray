@@ -1489,7 +1489,7 @@ cdef class EmptyProfileEvent:
 
 cdef class CoreWorker:
 
-    def __cinit__(self, worker_type, store_socket, store_addr, store_port, raylet_socket,
+    def __cinit__(self, worker_type, store_socket, raylet_socket,
                   JobID job_id, GcsClientOptions gcs_options, log_dir,
                   node_ip_address, node_manager_port, raylet_ip_address,
                   local_mode, driver_name, stdout_file, stderr_file,
@@ -1514,8 +1514,7 @@ cdef class CoreWorker:
             raise ValueError(f"Unknown worker type: {worker_type}")
         options.language = LANGUAGE_PYTHON
         options.store_socket = store_socket.encode("ascii")
-        options.store_addr = store_addr.encode("ascii")
-        options.store_port = store_port
+        options.plasma_store_port = 0 
         options.raylet_socket = raylet_socket.encode("ascii")
         options.job_id = job_id.native()
         options.gcs_options = gcs_options.native()[0]

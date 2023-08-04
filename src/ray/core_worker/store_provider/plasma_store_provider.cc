@@ -121,7 +121,8 @@ Status CoreWorkerPlasmaStoreProvider::Put(const RayObject &object,
   // not throw an error.
   if (data != nullptr) {
     if (object.HasData()) {
-      memcpy(data->Data(), object.GetData()->Data(), object.GetData()->Size());
+      //memcpy(data->Data(), object.GetData()->Data(), object.GetData()->Size());
+      store_client_.DoMemcpy(data->Data(), object.GetData()->Data(), object.GetData()->Size());
     }
     RAY_RETURN_NOT_OK(Seal(object_id));
     if (object_exists) {

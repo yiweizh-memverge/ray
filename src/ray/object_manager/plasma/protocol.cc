@@ -697,4 +697,172 @@ Status ReadPlasmaCXLShmInfoReply(const uint8_t* data, size_t size,
   return Status::OK();
 }
 
+Status SendRegisterEventListenerRequest(const std::shared_ptr<StoreConn> &store_conn) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaRegisterEventListenerRequest(fbb);
+  return PlasmaSend(store_conn, MessageType::PlasmaRegisterEventListenerRequest, &fbb, message);
+}
+
+Status SendRegisterEventListenerReply(const std::shared_ptr<Client> &client) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaRegisterEventListenerReply(fbb);
+  return PlasmaSend(client, MessageType::PlasmaRegisterEventListenerReply, &fbb, message);
+}
+
+Status SendRetrievePlasmaEventReply(const std::shared_ptr<Client> &client) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaNewEventReply(fbb);
+  return PlasmaSend(client, MessageType::PlasmaNewEventReply, &fbb, message);
+}
+
+Status SendRetrievePlasmaEventReply(const std::shared_ptr<Client> &client, int type,
+                                    const ray::ObjectInfo& data, void* ptr, size_t len) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaNewEventReply(fbb, type, fbb.CreateString(data.object_id.Binary()), data.data_size,
+                                               data.metadata_size, fbb.CreateString(data.owner_raylet_id.Binary()),
+                                               fbb.CreateString(data.owner_ip_address), data.owner_port,
+                                               fbb.CreateString(data.owner_worker_id.Binary()),
+                                               reinterpret_cast<uintptr_t>(ptr), len);
+  return PlasmaSend(client, MessageType::PlasmaNewEventReply, &fbb, message); 
+}
+
+Status ReadPlasmaEvent(const uint8_t* data, size_t size, int* type, ray::ObjectInfo* info, void** ptr, size_t* len) {
+  RAY_DCHECK(data);
+  auto message = flatbuffers::GetRoot<fb::PlasmaNewEventReply>(data);
+  RAY_DCHECK(VerifyFlatbuffer(message, const_cast<uint8_t*>(data), size));
+  *type = message->event_type();
+  info->object_id = ObjectID::FromBinary(message->object_id()->str());
+  info->data_size = message->data_size();
+  info->metadata_size = message->metadata_size();
+  info->owner_raylet_id = NodeID::FromBinary(message->node_id()->str());
+  info->owner_ip_address = message->owner_ip_address()->str();
+  info->owner_port = message->owner_port();
+  info->owner_worker_id = WorkerID::FromBinary(message->worker_id()->str());
+  if (ptr) {
+    *ptr = reinterpret_cast<void*>(message->buff_ptr());
+  }
+  if (len) {
+    *len = message->buff_size();
+  }
+  return Status::OK();
+}
+
+Status SendCheckObjectSpillableRequest(const std::shared_ptr<StoreConn>& store_conn,
+                                       const ray::ObjectID& obj_id) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaCheckObjectSpillableRequest(fbb, fbb.CreateString(obj_id.Binary()));
+  return PlasmaSend(store_conn, MessageType::PlasmaCheckObjectSpillableRequest, &fbb, message); 
+}
+
+Status SendCheckObjectSpillableReply(const std::shared_ptr<Client>& client, bool spillable) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaCheckObjectSpillableReply(fbb, spillable);
+  return PlasmaSend(client, MessageType::PlasmaCheckObjectSpillableReply, &fbb, message);
+}
+
+Status ReadPlasmaCheckObjectSpillableRequest(const uint8_t* data, size_t size, ObjectID* obj_id) {
+  RAY_DCHECK(data);
+  auto message = flatbuffers::GetRoot<fb::PlasmaCheckObjectSpillableRequest>(data);
+  RAY_DCHECK(VerifyFlatbuffer(message, const_cast<uint8_t*>(data), size));
+  *obj_id = ObjectID::FromBinary(message->object_id()->str());
+  return Status::OK();
+}
+
+Status ReadPlasmaCheckObjectSpillableReply(const uint8_t* data, size_t size, bool* spillable) {
+  RAY_DCHECK(data);
+  auto message = flatbuffers::GetRoot<fb::PlasmaCheckObjectSpillableReply>(data);
+  RAY_DCHECK(VerifyFlatbuffer(message, const_cast<uint8_t*>(data), size));
+  *spillable = message->spillable();
+  return Status::OK();
+}
+
+Status SendPlasmaGetConsumedBytesRequest(const std::shared_ptr<StoreConn>& store_conn) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaGetConsumedBytesRequest(fbb);
+  return PlasmaSend(store_conn, MessageType::PlasmaGetConsumedBytesRequest, &fbb, message);
+}
+
+Status SendPlasmaGetConsumedBytesReply(const std::shared_ptr<Client>& client, int64_t bytes) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaGetConsumedBytesReply(fbb, bytes);
+  return PlasmaSend(client, MessageType::PlasmaGetConsumedBytesRequest, &fbb, message);
+}
+
+Status SendPlasmaGetFallbackAllocatedRequest(const std::shared_ptr<StoreConn>& store_conn) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaGetFallbackAllocatedRequest(fbb);
+  return PlasmaSend(store_conn, MessageType::PlasmaGetFallbackAllocatedRequest, &fbb, message);
+}
+
+Status SendPlasmaGetFallbackAllocatedReply(const std::shared_ptr<Client>& client, int64_t bytes) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaGetFallbackAllocatedReply(fbb, bytes);
+  return PlasmaSend(client, MessageType::PlasmaGetFallbackAllocatedReply, &fbb, message);
+}
+
+Status SendPlasmaGetAvailableMemoryRequest(const std::shared_ptr<StoreConn>& store_conn) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaGetAvailableMemoryRequest(fbb);
+  return PlasmaSend(store_conn, MessageType::PlasmaGetAvailableMemoryRequest, &fbb, message); 
+}
+
+Status SendPlasmaGetAvailableMemoryReply(const std::shared_ptr<Client>& client, int64_t bytes) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaGetAvailableMemoryReply(fbb, bytes);
+  return PlasmaSend(client, MessageType::PlasmaGetAvailableMemoryReply, &fbb, message);
+}
+
+Status ReadPlasmaGetConsumedBytesReply(const uint8_t* data, size_t size, int64_t* bytes) {
+  RAY_DCHECK(data);
+  auto message = flatbuffers::GetRoot<fb::PlasmaGetConsumedBytesReply>(data);
+  RAY_DCHECK(VerifyFlatbuffer(message, const_cast<uint8_t*>(data), size));
+  *bytes = message->bytes();
+  return Status::OK();
+}
+
+Status ReadPlasmaGetFallbackAllocatedReply(const uint8_t* data, size_t size, int64_t* bytes) {
+  RAY_DCHECK(data);
+  auto message = flatbuffers::GetRoot<fb::PlasmaGetFallbackAllocatedReply>(data);
+  RAY_DCHECK(VerifyFlatbuffer(message, const_cast<uint8_t*>(data), size));
+  *bytes = message->bytes();
+  return Status::OK();
+}
+
+Status ReadPlasmaGetAvailableMemoryReply(const uint8_t* data, size_t size, int64_t* bytes) {
+  RAY_DCHECK(data);
+  auto message = flatbuffers::GetRoot<fb::PlasmaGetAvailableMemoryReply>(data);
+  RAY_DCHECK(VerifyFlatbuffer(message, const_cast<uint8_t*>(data), size));
+  *bytes = message->bytes();
+  return Status::OK();
+}
+
+Status SendPlasmaObjectDeleteReply(const std::shared_ptr<StoreConn>& store_conn, const ObjectID& obj_id) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaCheckObjectSpillableRequest(fbb, fbb.CreateString(obj_id.Binary()));
+  return PlasmaSend(store_conn, MessageType::PlasmaObjectDeleteReply, &fbb, message);
+}
+
+Status ReadPlasmaObjectDeleteReply(const uint8_t* data, size_t size, ObjectID* obj_id) {
+  RAY_DCHECK(data);
+  auto message = flatbuffers::GetRoot<fb::PlasmaObjectDeleteReply>(data);
+  RAY_DCHECK(VerifyFlatbuffer(message, const_cast<uint8_t*>(data), size));
+  *obj_id = ObjectID::FromBinary(message->object_id()->str());
+  return Status::OK();
+  
+}
+
+Status SendPlasmaSpillStatus(const std::shared_ptr<StoreConn>& client, bool spill) {
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = fb::CreatePlasmaUpdateSpillStatus(fbb, spill ? 1 : 0);
+  return PlasmaSend(client, MessageType::PlasmaUpdateSpillStatus, &fbb, message);
+}
+
+Status ReadPlasmaSpillStatus(const uint8_t* data, size_t size, int* spill) {
+  RAY_DCHECK(data);
+  auto message = flatbuffers::GetRoot<fb::PlasmaUpdateSpillStatus>(data);
+  RAY_DCHECK(VerifyFlatbuffer(message, const_cast<uint8_t*>(data), size));
+  *spill = message->spilling();
+  return Status::OK();
+}
+ 
 }  // namespace plasma

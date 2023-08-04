@@ -10,6 +10,7 @@
 #include "ray/common/ray_config.h"
 #include "ray/object_manager/plasma/plasma_allocator.h"
 #include "ray/object_manager/plasma/cxl_allocator.h"
+#include "ray/object_manager/plasma/object_reference_manager.h"
 
 namespace plasma {
 namespace internal {
@@ -108,18 +109,27 @@ PlasmaStoreRunner::PlasmaStoreRunner(std::string socket_name,
   fallback_directory_ = fallback_directory;
 }
 
+void PlasmaStoreRunner::StartDefault() {
+  Start([]() {return false;},
+        [](){},
+        [](const ray::ObjectInfo & obj) {},
+        [](const ray::ObjectID & obj) {});
+}
+
 void PlasmaStoreRunner::Start(ray::SpillObjectsCallback spill_objects_callback,
                               std::function<void()> object_store_full_callback,
                               ray::AddObjectCallback add_object_callback,
                               ray::DeleteObjectCallback delete_object_callback) {
   SetThreadName("store.io");
-  RAY_LOG(DEBUG) << "starting server listening on " << socket_name_;
+  RAY_LOG(INFO) << "starting server listening on " << socket_name_;
+  std::string listen_socket_name;
   {
     absl::MutexLock lock(&store_runner_mutex_);
-    if (cxl_shm_info_.port == 0) {
+    if (cxl_shm_info_.port == 0 ) {
       RAY_LOG(INFO) << "Start Plasma store with local shared memory";
       allocator_ = std::make_unique<PlasmaAllocator>(
           plasma_directory_, fallback_directory_, hugepages_enabled_, system_memory_);
+      listen_socket_name = socket_name_;
     } else {
       RAY_LOG(INFO) << "Start Plasma with CXL shared memory";
       allocator_ = std::unique_ptr<IAllocator>(
@@ -131,7 +141,8 @@ void PlasmaStoreRunner::Start(ray::SpillObjectsCallback spill_objects_callback,
                               cxl_shm_info_.vendor,
                               cxl_shm_info_.model,
                               cxl_shm_info_.serial,
-                              cxl_shm_info_.segment)); 
+                              cxl_shm_info_.segment));
+      listen_socket_name = "tcp://0.0.0.0:" + std::to_string(listen_port_);
     }
 #ifndef _WIN32
     std::vector<std::string> local_spilling_paths;
@@ -148,10 +159,11 @@ void PlasmaStoreRunner::Start(ray::SpillObjectsCallback spill_objects_callback,
     // Create noop monitor for Windows.
     fs_monitor_ = std::make_unique<ray::FileSystemMonitor>();
 #endif
+    RAY_LOG(INFO) << "starting server listening on socket " << listen_socket_name;
     store_.reset(new PlasmaStore(main_service_,
                                  *allocator_,
                                  *fs_monitor_,
-                                 socket_name_,
+                                 listen_socket_name,
                                  RayConfig::instance().object_store_full_delay_ms(),
                                  RayConfig::instance().object_spilling_threshold(),
                                  spill_objects_callback,
@@ -193,6 +205,82 @@ int64_t PlasmaStoreRunner::GetFallbackAllocated() const {
   return allocator_ ? allocator_->FallbackAllocated() : 0;
 }
 
-std::unique_ptr<PlasmaStoreRunner> plasma_store_runner;
+void PlasmaStoreRunnerDelegator::Start(ray::SpillObjectsCallback spill_objects_callback,
+                                       std::function<void()> object_store_full_callback,
+                                       ray::AddObjectCallback add_object_callback,
+                                       ray::DeleteObjectCallback delete_object_callback) {
+  spill_callback_ = spill_objects_callback;
+  store_full_callback_ = object_store_full_callback;
+  add_object_callback_ = add_object_callback;
+  delete_object_callback_ = delete_object_callback;
+  client_.reset(new PlasmaEventClient());
+  client_->Connect(socket_path_);
+  PlasmaEventClient client;
+  client.Connect(socket_path_);
+  client.RegisterPlasmaEventListener();
+  RAY_LOG(INFO) << "The Plasma proxy is started";
+  while (stop_.load() == 0) {
+    ray::ObjectInfo info;
+    int event_type;
+    void* ptr = nullptr;
+    size_t buff_size = 0;
+    Status st = client.RetrievePlasmaObjectEvent(&event_type, &info, &ptr, &buff_size);
+    if (!st.ok()) {
+      continue;
+    }
+    ObjectEventType type = static_cast<ObjectEventType>(event_type);
+    switch (type) {
+      case ObjectEventType::ObjectAddedEvent:
+        add_object_callback_(info);
+        break;
+      case ObjectEventType::ObjectDeletedEvent:
+        delete_object_callback_(info.object_id);
+        if (ObjectReferenceHistory::GetObjectReferenceManger().RemoveObjectReference(info.object_id)) {
+          client.MemBarrier(info.object_id, ptr, buff_size);
+        }
+        client.CompleteObjectDelete(info.object_id);
+        break;
+      case ObjectEventType::ObjectStoreFullEvent:
+        store_full_callback_();
+        break;
+      case ObjectEventType::ObjectSpillEvent:
+        client.UpdatePlasmaSpillStatus(spill_callback_());
+        break;
+      default:
+        break;      
+    }    
+  }
+  RAY_LOG(INFO) << "The plasma proxy stopped";    
+}
+
+bool PlasmaStoreRunnerDelegator::IsPlasmaObjectSpillable(const ObjectID &object_id) {
+  bool spillable = false;
+  if (client_)
+    client_->CheckIfObjectSpillable(object_id, &spillable);
+  return spillable; 
+}
+
+int64_t PlasmaStoreRunnerDelegator::GetConsumedBytes() {
+  uint64_t bytes = 0;
+  if (client_)
+    client_->GetConsumedBytes(&bytes);
+  return static_cast<int64_t>(bytes);
+};
+
+int64_t PlasmaStoreRunnerDelegator::GetFallbackAllocated() const {
+  uint64_t bytes = 0;
+  if (client_)
+    client_->GetConsumedBytes(&bytes);
+  return static_cast<int64_t>(bytes);
+}
+
+void PlasmaStoreRunnerDelegator::GetAvailableMemoryAsync(std::function<void(size_t)> callback) const {
+  uint64_t bytes = 0;
+  if (client_)
+    client_->GetAvailableMemory(&bytes);
+  callback(static_cast<size_t>(bytes));
+}
+
+std::unique_ptr<PlasmaStoreRunnerApi> plasma_store_runner;
 
 }  // namespace plasma

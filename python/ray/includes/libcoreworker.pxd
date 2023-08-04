@@ -264,8 +264,7 @@ cdef extern from "ray/core_worker/core_worker.h" nogil:
         CWorkerType worker_type
         CLanguage language
         c_string store_socket
-        c_string store_addr
-        int store_port
+        int plasma_store_port
         c_string raylet_socket
         CJobID job_id
         CGcsClientOptions gcs_options

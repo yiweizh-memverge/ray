@@ -67,6 +67,8 @@ class CXLSharedSegmentInf : public std::enable_shared_from_this<CXLSharedSegment
      ptr is the virtual address */
   virtual void MemBarrier(void* ptr, size_t size) = 0;
 
+  virtual void DoNTMemCpy(void* dest, const void* src, size_t size) = 0;
+
   /* The reserved RPC buffer */
   virtual uint64_t RPCBuffSize() const = 0;
 

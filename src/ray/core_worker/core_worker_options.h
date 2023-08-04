@@ -59,8 +59,7 @@ struct CoreWorkerOptions {
 
   CoreWorkerOptions()
       : store_socket(""),
-        store_addr(""),
-        store_port(0),
+        plasma_store_port(0),
         raylet_socket(""),
         enable_logging(false),
         log_dir(""),
@@ -96,8 +95,7 @@ struct CoreWorkerOptions {
   Language language;
   /// Object store socket to connect to.
   std::string store_socket;
-  std::string store_addr;
-  int    store_port;
+  int    plasma_store_port;
   /// Raylet socket to connect to.
   std::string raylet_socket;
   /// Job ID of this worker.

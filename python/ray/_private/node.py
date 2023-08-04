@@ -54,7 +54,7 @@ class Node:
         self,
         ray_params,
         head: bool = False,
-        shutdown_at_exit: bool = True,
+        shutdown_at_exit: bool = False,
         spawn_reaper: bool = True,
         connect_only: bool = False,
         default_worker: bool = False,
@@ -766,6 +766,8 @@ class Node:
         Args:
             socket_path: the socket file to prepare.
         """
+        if socket_path is not None and socket_path[0] != '/':
+            return socket_path
         result = socket_path
         is_mac = sys.platform.startswith("darwin")
         if sys.platform == "win32":

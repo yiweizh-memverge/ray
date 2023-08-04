@@ -25,6 +25,7 @@
 #include "ray/common/buffer.h"
 #include "ray/common/status.h"
 #include "ray/object_manager/plasma/common.h"
+#include "ray/object_manager/common.h"
 #include "ray/util/visibility.h"
 #include "src/ray/protobuf/common.pb.h"
 
@@ -43,6 +44,67 @@ struct ObjectBuffer {
   /// The device number.
   int device_num;
 };
+
+class PlasmaEventClientInterface {
+ public:
+
+  virtual ~PlasmaEventClientInterface() {};
+
+  virtual Status Connect(const std::string& socket_path) = 0;
+
+  virtual void Disconnect() = 0;
+
+  virtual Status RegisterPlasmaEventListener() = 0;
+
+  virtual Status RetrievePlasmaObjectEvent(int* type, ray::ObjectInfo* obj_info, void** ptr, size_t*) = 0;
+
+  virtual Status CheckIfObjectSpillable(const ObjectID& id, bool* spillable) = 0;
+
+  virtual Status GetFallbackAllocated(uint64_t*) = 0;
+
+  virtual Status GetConsumedBytes(uint64_t*) = 0;
+
+  virtual Status GetAvailableMemory(uint64_t*) = 0;
+
+  virtual void MemBarrier(const ObjectID& obj, void* ptr, size_t len) = 0;
+
+  virtual Status CompleteObjectDelete(const ObjectID& id) = 0;
+
+  virtual Status UpdatePlasmaSpillStatus(bool) = 0;
+};
+
+class PlasmaEventClient : public PlasmaEventClientInterface {
+ public:
+  PlasmaEventClient();
+
+  ~PlasmaEventClient();
+
+  Status Connect(const std::string& socket_path);
+
+  void Disconnect();
+
+  Status RegisterPlasmaEventListener();
+
+  Status RetrievePlasmaObjectEvent(int* event_type, ray::ObjectInfo* obj_info, void** ptr, size_t*);
+
+  Status CheckIfObjectSpillable(const ObjectID& id, bool* spillable);
+
+  Status GetFallbackAllocated(uint64_t*);
+
+  Status GetConsumedBytes(uint64_t*);
+
+  Status GetAvailableMemory(uint64_t*);
+
+  void MemBarrier(const ObjectID& obj, void* ptr, size_t len);
+
+  Status CompleteObjectDelete(const ObjectID& id);
+
+  Status UpdatePlasmaSpillStatus(bool);
+ private:
+  class Impl;
+  std::shared_ptr<Impl> impl_;
+};
+
 
 class PlasmaClientInterface {
  public:
@@ -143,6 +205,9 @@ class PlasmaClientInterface {
   /// \param object_ids The list of IDs of the objects to delete.
   /// \return The return status. If all the objects are non-existent, return OK.
   virtual Status Delete(const std::vector<ObjectID> &object_ids) = 0;
+
+  virtual void DoMemcpy(void* dest, const void* src, size_t len) = 0;
+
 };
 
 class PlasmaClient : public PlasmaClientInterface {
@@ -345,6 +410,9 @@ class PlasmaClient : public PlasmaClientInterface {
   int64_t store_capacity();
 
   bool IsGlobalShm();
+
+  void DoMemcpy(void* dest, const void* src, size_t len);
+
  private:
   /// Retry a previous create call using the returned request ID.
   ///

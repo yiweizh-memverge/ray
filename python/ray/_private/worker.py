@@ -1060,6 +1060,7 @@ def init(
     namespace: Optional[str] = None,
     runtime_env: Optional[Union[Dict[str, Any], "RuntimeEnv"]] = None,  # noqa: F821
     storage: Optional[str] = None,
+    plasma_store_socket_name: Optional[str] = None,
     **kwargs,
 ) -> BaseContext:
     """
@@ -1504,6 +1505,7 @@ def init(
             _system_config=_system_config,
             enable_object_reconstruction=_enable_object_reconstruction,
             metrics_export_port=_metrics_export_port,
+            plasma_store_socket_name=plasma_store_socket_name,
         )
         try:
             _global_node = ray._private.node.Node(

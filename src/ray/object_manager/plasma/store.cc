@@ -36,6 +36,7 @@
 #include <chrono>
 #include <ctime>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -53,6 +54,7 @@
 #include "ray/object_manager/plasma/protocol.h"
 #include "ray/stats/metric_defs.h"
 #include "ray/util/util.h"
+#include "ray/util/filesystem.h"
 
 namespace ph = boost::placeholders;
 namespace fb = plasma::flatbuf;
@@ -84,21 +86,23 @@ PlasmaStore::PlasmaStore(instrumented_io_context &main_service,
     : io_context_(main_service),
       socket_name_(socket_name),
       acceptor_(main_service, ParseUrlEndpoint(socket_name)),
-      tcp_acceptor_(main_service, ParseUrlEndpoint(std::string("tcp://0.0.0.0:") + std::to_string(listen_port))),
       socket_(main_service),
-      tcp_socket_(main_service),
       allocator_(allocator),
       fs_monitor_(fs_monitor),
       add_object_callback_(add_object_callback),
       delete_object_callback_(delete_object_callback),
-      object_lifecycle_mgr_(allocator_, delete_object_callback_),
+      spill_object_callback_(spill_objects_callback),
+      object_store_full_callback_(object_store_full_callback),
+      object_lifecycle_mgr_(allocator_, std::bind(&PlasmaStore::HandleObjectDelete, this, std::placeholders::_1, std::placeholders::_2)),
       delay_on_oom_ms_(delay_on_oom_ms),
       object_spilling_threshold_(object_spilling_threshold),
       create_request_queue_(
           fs_monitor_,
           /*oom_grace_period_s=*/RayConfig::instance().oom_grace_period_s(),
-          spill_objects_callback,
-          object_store_full_callback,
+          //spill_objects_callback,
+          std::bind(&PlasmaStore::StoreSpillCallback, this),
+          std::bind(&PlasmaStore::StoreFullCallback, this),
+          //object_store_full_callback,
           /*get_time=*/
           []() { return absl::GetCurrentTimeNanos(); },
           // absl can't check thread safety for lambda
@@ -127,6 +131,10 @@ PlasmaStore::PlasmaStore(instrumented_io_context &main_service,
 
   if (RayConfig::instance().metrics_report_interval_ms() > 0) {
     ScheduleRecordMetrics();
+  }
+  if (socket_name.find("tcp://") == 0 ||
+      !ray::IsDirSep(socket_name[0])) {
+    is_tcp_ = true;
   }
 }
 
@@ -170,7 +178,7 @@ PlasmaError PlasmaStore::HandleCreateObjectRequest(const std::shared_ptr<Client>
     RAY_LOG(ERROR) << "device_num != 0 but CUDA not enabled";
     return PlasmaError::OutOfMemory;
   }
-
+  RAY_LOG(INFO) << "Create Object: " << message.size();
   auto error = CreateObject(object_info, source, client, fallback_allocator, object);
   if (error == PlasmaError::OutOfMemory) {
     RAY_LOG(DEBUG) << "Not enough memory to create the object " << object_info.object_id
@@ -247,7 +255,9 @@ void PlasmaStore::ReturnFromGet(const std::shared_ptr<GetRequest> &get_request) 
   if (s.ok()) {
     // Send all of the file descriptors for the present objects.
     for (MEMFD_TYPE store_fd : store_fds) {
-      Status send_fd_status = get_request->client->SendFd(store_fd);
+      Status send_fd_status = Status::OK();
+      if (store_fd.first != CXL_SHM_FD || store_fd.second != CXL_SHM_ID)
+        send_fd_status = get_request->client->SendFd(store_fd);
       if (!send_fd_status.ok()) {
         RAY_LOG(ERROR) << "Failed to send mmap results to client on fd "
                        << get_request->client;
@@ -296,6 +306,7 @@ void PlasmaStore::SealObjects(const std::vector<ObjectID> &object_ids) {
     auto entry = object_lifecycle_mgr_.SealObject(object_ids[i]);
     RAY_CHECK(entry) << object_ids[i] << " is missing or not sealed.";
     add_object_callback_(entry->GetObjectInfo());
+    SendObjectEventToListener(ObjectEventType::ObjectAddedEvent, entry->GetObjectInfo());
   }
 
   for (size_t i = 0; i < object_ids.size(); ++i) {
@@ -321,6 +332,11 @@ int PlasmaStore::AbortObject(const ObjectID &object_id,
 void PlasmaStore::ConnectLocalClient(const boost::system::error_code &error) {
   if (!error) {
     // Accept a new local client and dispatch it to the node manager.
+    if (is_tcp_) {
+      boost::asio::ip::tcp::no_delay option(true);
+      socket_.set_option(option);
+    }
+
     auto new_connection = Client::Create(
         // NOLINTNEXTLINE : handler must be of boost::AcceptHandler type.
         boost::bind(&PlasmaStore::ProcessMessage, this, ph::_1, ph::_2, ph::_3),
@@ -329,20 +345,10 @@ void PlasmaStore::ConnectLocalClient(const boost::system::error_code &error) {
 
   if (error != boost::asio::error::operation_aborted) {
     // We're ready to accept another client.
-    DoAccept(1);
+    DoAccept();
   }
 }
 
-void PlasmaStore::ConnectTCPClient(const boost::system::error_code &error) {
-  if (!error) {
-    auto new_connection = Client::Create(
-      boost::bind(&PlasmaStore::ProcessMessage, this, ph::_1, ph::_2, ph::_3),
-      std::move(tcp_socket_));
-  }
-  if (error != boost::asio::error::operation_aborted) {
-    DoAccept(2);
-  }
-}
 
 void PlasmaStore::DisconnectClient(const std::shared_ptr<Client> &client) {
   client->Close();
@@ -364,6 +370,14 @@ void PlasmaStore::DisconnectClient(const std::shared_ptr<Client> &client) {
       // Abort unsealed object.
       object_lifecycle_mgr_.AbortObject(object_id);
     }
+    auto itr = event_listeners_.begin();
+    while (itr != event_listeners_.end()) {
+      if ((*itr).get() == client.get()) {
+        event_listeners_.erase(itr);
+        break;
+      }
+      itr++;
+    }
   }
 
   /// Remove all of the client's GetRequests.
@@ -372,7 +386,17 @@ void PlasmaStore::DisconnectClient(const std::shared_ptr<Client> &client) {
   for (const auto &[object_id, _] : sealed_objects) {
     RemoveFromClientObjectIds(object_id, client);
   }
-
+  auto pending_del = client->GetPendingDeleteObject();
+  for (const auto& obj_id : pending_del) {
+    auto itr = pending_free_list_.find(obj_id);
+    if (itr == pending_free_list_.end()) continue;
+    itr->second.first--;
+    if (itr->second.first == 0) {
+      allocator_.Free(std::move(itr->second.second));
+      pending_free_list_.erase(itr);
+    }
+  }
+  pending_del.clear();
   create_request_queue_.RemoveDisconnectedClientRequests(client);
 }
 
@@ -391,7 +415,7 @@ Status PlasmaStore::ProcessMessage(const std::shared_ptr<Client> &client,
     const auto &object_id = GetCreateRequestObjectId(message);
     const auto &request = flatbuffers::GetRoot<fb::PlasmaCreateRequest>(input);
     const size_t object_size = request->data_size() + request->metadata_size();
-
+    RAY_LOG(INFO) << "OBJECT size: " << object_size;
     // absl failed analyze mutex safety for lambda
     auto handle_create =
         [this, client, message](
@@ -411,7 +435,8 @@ Status PlasmaStore::ProcessMessage(const std::shared_ptr<Client> &client,
       const auto &error = result_error.second;
       if (SendCreateReply(client, object_id, result, error).ok() &&
           error == PlasmaError::OK && result.device_num == 0) {
-        static_cast<void>(client->SendFd(result.store_fd));
+        if (result.store_fd.first != CXL_SHM_FD || result.store_fd.second != CXL_SHM_ID)
+          static_cast<void>(client->SendFd(result.store_fd));
       }
     } else {
       auto req_id =
@@ -493,6 +518,43 @@ Status PlasmaStore::ProcessMessage(const std::shared_ptr<Client> &client,
   case fb::MessageType::PlasmaCXLShmInfoRequest: {
     RAY_RETURN_NOT_OK(SendPlasmaCXLShmInfoReply(client, cxl_shm_info_));
   } break;
+  case fb::MessageType::PlasmaRegisterEventListenerRequest: {
+    event_listeners_.push_back(client);
+    RAY_RETURN_NOT_OK(SendRegisterEventListenerReply(client));
+    break; 
+  }
+  case fb::MessageType::PlasmaCheckObjectSpillableRequest: {
+    ObjectID obj_id;
+    RAY_RETURN_NOT_OK(ReadPlasmaCheckObjectSpillableRequest(input, input_size, &obj_id));
+    bool spillable = CheckIsObjectSpillable(obj_id);
+    RAY_RETURN_NOT_OK(SendCheckObjectSpillableReply(client, spillable));
+  } break;
+  case fb::MessageType::PlasmaGetConsumedBytesRequest: {
+    RAY_RETURN_NOT_OK(SendPlasmaGetConsumedBytesReply(client, GetConsumedBytes()));
+  } break;
+  case fb::MessageType::PlasmaGetFallbackAllocatedRequest: {
+    RAY_RETURN_NOT_OK(SendPlasmaGetFallbackAllocatedReply(client, allocator_.FallbackAllocated())); 
+  } break;
+  case fb::MessageType::PlasmaGetAvailableMemoryRequest: {
+    RAY_RETURN_NOT_OK(SendPlasmaGetAvailableMemoryReply(client, GetAvailableMemory())); 
+  } break;
+  case fb::MessageType::PlasmaObjectDeleteReply: {
+    ObjectID obj_id;
+    RAY_RETURN_NOT_OK(ReadPlasmaObjectDeleteReply(input, input_size, &obj_id));
+    client->MarkObjectDeleteComplete(obj_id);
+    auto itr = pending_free_list_.find(obj_id);
+    if (itr == pending_free_list_.end()) break;
+    itr->second.first--;
+    if (itr->second.first == 0) {
+      allocator_.Free(std::move(itr->second.second));
+      pending_free_list_.erase(itr);
+    }
+  } break;
+  case fb::MessageType::PlasmaUpdateSpillStatus: {
+    pending_spill_update_num_--;
+    int spill;
+    RAY_RETURN_NOT_OK(ReadPlasmaSpillStatus(input, input_size, &spill));
+  } break;
   default:
     // This code should be unreachable.
     RAY_CHECK(0);
@@ -500,17 +562,10 @@ Status PlasmaStore::ProcessMessage(const std::shared_ptr<Client> &client,
   return Status::OK();
 }
 
-void PlasmaStore::DoAccept(int which) {
-  if (which & 1) {
-    acceptor_.async_accept(
-        socket_,
-        boost::bind(&PlasmaStore::ConnectLocalClient, this, boost::asio::placeholders::error));
-  }
-  if ((which & 2) && listen_port_ > 0) {
-    tcp_acceptor_.async_accept(
-      tcp_socket_,
-      boost::bind(&PlasmaStore::ConnectTCPClient, this, boost::asio::placeholders::error));
-  } 
+void PlasmaStore::DoAccept() {
+  acceptor_.async_accept(
+      socket_,
+      boost::bind(&PlasmaStore::ConnectLocalClient, this, boost::asio::placeholders::error));
 }
 
 void PlasmaStore::ProcessCreateRequests() {
@@ -558,7 +613,8 @@ void PlasmaStore::ReplyToCreateClient(const std::shared_ptr<Client> &client,
     RAY_LOG(DEBUG) << "Finishing create object " << object_id << " request ID " << req_id;
     if (SendCreateReply(client, object_id, result, error).ok() &&
         error == PlasmaError::OK && result.device_num == 0) {
-      static_cast<void>(client->SendFd(result.store_fd));
+      if (result.store_fd.first != CXL_SHM_FD || result.store_fd.second != CXL_SHM_ID)
+        static_cast<void>(client->SendFd(result.store_fd));
     }
   } else {
     static_cast<void>(SendUnfinishedCreateReply(client, object_id, req_id));
@@ -569,6 +625,10 @@ int64_t PlasmaStore::GetConsumedBytes() { return total_consumed_bytes_; }
 
 bool PlasmaStore::IsObjectSpillable(const ObjectID &object_id) {
   absl::MutexLock lock(&mutex_);
+  return CheckIsObjectSpillable(object_id);
+}
+
+bool PlasmaStore::CheckIsObjectSpillable(const ObjectID &object_id) {
   auto entry = object_lifecycle_mgr_.GetObject(object_id);
   if (!entry) {
     // Object already evicted or deleted.
@@ -596,6 +656,51 @@ void PlasmaStore::ScheduleRecordMetrics() const {
       // divide by 2 to make sure record happens before reporting
       // this also matches with  NodeManager::RecordMetrics interval
       RayConfig::instance().metrics_report_interval_ms() / 2);
+}
+
+bool PlasmaStore::StoreSpillCallback() {
+  if (pending_spill_update_num_ > 0) return true;
+  ray::ObjectInfo info;
+  pending_spill_update_num_ = SendObjectEventToListener(ObjectEventType::ObjectSpillEvent, info, nullptr);
+  bool spilling = spill_object_callback_(); 
+  return spilling || pending_spill_update_num_ > 0;; 
+}
+
+void PlasmaStore::StoreFullCallback() {
+  object_store_full_callback_();
+  ray::ObjectInfo info;
+  SendObjectEventToListener(ObjectEventType::ObjectStoreFullEvent, info, nullptr); 
+}
+
+void PlasmaStore::HandleObjectDelete(const ObjectID& objid, Allocation* alloc) {
+  delete_object_callback_(objid);
+  ray::ObjectInfo info;
+  info.object_id = objid;
+  SendObjectEventToListener(ObjectEventType::ObjectDeletedEvent, info, alloc);
+}
+
+int PlasmaStore::SendObjectEventToListener(ObjectEventType type, const ray::ObjectInfo& data, Allocation* alloc) {
+  int count = 0;
+  int success_count = 0;
+  for (const auto& client : event_listeners_) {
+    Status st;
+    if (alloc == nullptr) {
+      st = SendRetrievePlasmaEventReply(client, static_cast<int>(type), data);
+    } else {
+      st = SendRetrievePlasmaEventReply(client, static_cast<int>(type), data, alloc->address, alloc->size);
+      if (st.ok()) {
+        count++;
+        client->MarkObjectDelete(data.object_id);
+      }
+    }
+    if (st.ok()) success_count++;
+  }
+  if (count) {
+    pending_free_list_.emplace(data.object_id, std::make_pair(count, std::move(*alloc)));
+  } else if (alloc) {
+    allocator_.Free(std::move(*alloc));
+  }
+  return success_count;
 }
 
 std::string PlasmaStore::GetDebugDump() const {

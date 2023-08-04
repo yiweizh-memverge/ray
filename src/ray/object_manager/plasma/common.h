@@ -37,6 +37,12 @@ using ray::NodeID;
 using ray::ObjectID;
 using ray::WorkerID;
 
+static constexpr uint64_t kMemSizeAlignment = 1;
+
+#define AlignMemSize(a) (((a) + kMemSizeAlignment - 1) / kMemSizeAlignment * kMemSizeAlignment)
+
+enum class ObjectEventType : int32_t {ObjectSpillEvent, ObjectStoreFullEvent, ObjectAddedEvent, ObjectDeletedEvent};
+
 enum class ObjectLocation : int32_t { Local, Remote, Nonexistent };
 
 enum class ObjectState : int {
@@ -109,6 +115,7 @@ struct Allocation {
   friend class CXLShmAllocator;
   friend class PlasmaAllocator;
   friend class DummyAllocator;
+  friend class ObjectLifecycleManager;
   friend struct ObjectLifecycleManagerTest;
   FRIEND_TEST(ObjectStoreTest, PassThroughTest);
   FRIEND_TEST(EvictionPolicyTest, Test);
@@ -142,7 +149,7 @@ class LocalObject {
     }
     object->store_fd = GetAllocation().fd;
     object->data_offset = GetAllocation().offset;
-    object->metadata_offset = GetAllocation().offset + GetObjectInfo().data_size;
+    object->metadata_offset = GetAllocation().offset + AlignMemSize(GetObjectInfo().data_size);
     object->data_size = GetObjectInfo().data_size;
     object->metadata_size = GetObjectInfo().metadata_size;
     object->device_num = GetAllocation().device_num;
@@ -175,4 +182,6 @@ class LocalObject {
   /// The source of the object. Used for debugging purposes.
   plasma::flatbuf::ObjectSource source;
 };
+
+using InternalDeleteObjectCallback = std::function<void(const ObjectID&, Allocation*)>;
 }  // namespace plasma

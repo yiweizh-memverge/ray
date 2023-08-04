@@ -86,11 +86,15 @@ class PlasmaStore {
   /// Return the plasma object bytes that are consumed by core workers.
   int64_t GetConsumedBytes();
 
-  /// Get the available memory for new objects to be created. This includes
-  /// memory that is currently being used for created but unsealed objects.
-  void GetAvailableMemory(std::function<void(size_t)> callback) const
+  void GetAvailableMemory(std::function<void(size_t)> callback) const 
       LOCKS_EXCLUDED(mutex_) {
     absl::MutexLock lock(&mutex_);
+    callback(GetAvailableMemory());
+  }
+
+  /// Get the available memory for new objects to be created. This includes
+  /// memory that is currently being used for created but unsealed objects.
+  size_t GetAvailableMemory() const {
     RAY_CHECK((object_lifecycle_mgr_.GetNumBytesUnsealed() > 0 &&
                object_lifecycle_mgr_.GetNumObjectsUnsealed() > 0) ||
               (object_lifecycle_mgr_.GetNumBytesUnsealed() == 0 &&
@@ -107,7 +111,7 @@ class PlasmaStore {
     if (num_bytes_in_use < allocator_.GetFootprintLimit()) {
       available = allocator_.GetFootprintLimit() - num_bytes_in_use;
     }
-    callback(available);
+    return available;
   }
 
  private:
@@ -190,8 +194,6 @@ class PlasmaStore {
   void ConnectLocalClient(const boost::system::error_code &error)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
-  void ConnectTCPClient(const boost::system::error_code &error)
-      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   /// Disconnect a client from the PlasmaStore.
   ///
@@ -225,7 +227,7 @@ class PlasmaStore {
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   // Start listening for clients.
-  void DoAccept(int who = 3);
+  void DoAccept();
 
   void PrintAndRecordDebugDump() const LOCKS_EXCLUDED(mutex_);
 
@@ -236,16 +238,24 @@ class PlasmaStore {
 
   void ScheduleRecordMetrics() const LOCKS_EXCLUDED(mutex_);
 
+  void HandleObjectDelete(const ObjectID& objid, Allocation*);
+
+  int SendObjectEventToListener(ObjectEventType type, const ray::ObjectInfo& info, Allocation* alloc = nullptr);
+
+  bool StoreSpillCallback();
+
+  void StoreFullCallback();
+
+  bool CheckIsObjectSpillable(const ObjectID &object_id);
+
   // A reference to the asio io context.
   instrumented_io_context &io_context_;
   /// The name of the socket this object store listens on.
   std::string socket_name_;
   /// An acceptor for new clients.
   boost::asio::basic_socket_acceptor<ray::local_stream_protocol> acceptor_;
-  boost::asio::basic_socket_acceptor<ray::local_stream_protocol> tcp_acceptor_;
   /// The socket to listen on for new clients.
   ray::local_stream_socket socket_;
-  ray::local_stream_socket tcp_socket_;
 
   /// This mutex is used in order to make plasma store threas-safe with raylet.
   /// Raylet's local_object_manager needs to ping access plasma store's method in order to
@@ -270,6 +280,10 @@ class PlasmaStore {
   /// NOTE: This function should guarantee the thread-safety because the callback is
   /// shared with the main raylet thread.
   const ray::DeleteObjectCallback delete_object_callback_;
+
+  const ray::SpillObjectsCallback spill_object_callback_;
+
+  std::function<void()> object_store_full_callback_;
 
   ObjectLifecycleManager object_lifecycle_mgr_ GUARDED_BY(mutex_);
 
@@ -304,6 +318,10 @@ class PlasmaStore {
   GetRequestQueue get_request_queue_ GUARDED_BY(mutex_);
   uint16_t listen_port_;
   CXLShmInfo cxl_shm_info_;
+  bool is_tcp_ = false;
+  int pending_spill_update_num_ = 0;
+  std::list<std::shared_ptr<Client>> event_listeners_;
+  absl::flat_hash_map<ObjectID, std::pair<int, Allocation>> pending_free_list_;
 };
 
 }  // namespace plasma

@@ -65,6 +65,20 @@ enum MessageType:long {
   PlasmaGetDebugStringReply,
   PlasmaCXLShmInfoRequest,
   PlasmaCXLShmInfoReply,
+  // Register for object event
+  PlasmaRegisterEventListenerRequest,
+  PlasmaRegisterEventListenerReply,
+  PlasmaNewEventReply,
+  PlasmaCheckObjectSpillableRequest,
+  PlasmaCheckObjectSpillableReply,
+  PlasmaGetConsumedBytesRequest,
+  PlasmaGetConsumedBytesReply,
+  PlasmaGetFallbackAllocatedRequest,
+  PlasmaGetFallbackAllocatedReply,
+  PlasmaGetAvailableMemoryRequest,
+  PlasmaGetAvailableMemoryReply,
+  PlasmaObjectDeleteReply,
+  PlasmaUpdateSpillStatus,
 }
 
 enum PlasmaError:int {
@@ -304,3 +318,59 @@ table PlasmaCXLShmInfoReply {
   segment: ulong;
 }
 
+table PlasmaRegisterEventListenerRequest {
+}
+
+table PlasmaRegisterEventListenerReply {
+}
+
+
+table PlasmaNewEventReply {
+  event_type: int;
+  object_id: string;
+  data_size: int64;
+  metadata_size: int64;
+  node_id: string;
+  owner_ip_address: string;
+  owner_port: int;
+  worker_id: string;
+  buff_ptr: int64;
+  buff_size: int64;
+}
+
+table PlasmaCheckObjectSpillableRequest {
+  object_id: string;
+}
+
+table PlasmaCheckObjectSpillableReply {
+  spillable: bool;
+}
+
+table PlasmaGetConsumedBytesRequest {
+}
+
+table PlasmaGetConsumedBytesReply {
+  bytes: int64;
+}
+
+table PlasmaGetFallbackAllocatedRequest {
+}
+
+table PlasmaGetFallbackAllocatedReply {
+  bytes: int64;
+}
+
+table PlasmaGetAvailableMemoryRequest {
+}
+
+table PlasmaGetAvailableMemoryReply {
+  bytes: int64;
+}
+
+table PlasmaObjectDeleteReply {
+  object_id: string;
+}
+
+table PlasmaUpdateSpillStatus {
+  spilling: int;
+}

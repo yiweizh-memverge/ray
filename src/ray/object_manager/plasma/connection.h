@@ -45,6 +45,18 @@ class Client : public ray::ClientConnection, public ClientInterface {
     object_ids.erase(object_id);
   }
 
+  void MarkObjectDelete(const ray::ObjectID& object_id) {
+    pending_delete_objects_.insert(object_id);
+  }
+
+  void MarkObjectDeleteComplete(const ray::ObjectID& object_id) {
+    pending_delete_objects_.erase(object_id);
+  }
+
+  std::unordered_set<ray::ObjectID>& GetPendingDeleteObject() {
+    return pending_delete_objects_;
+  }
+
   std::string name = "anonymous_client";
 
  private:
@@ -55,6 +67,8 @@ class Client : public ray::ClientConnection, public ClientInterface {
 
   /// Object ids that are used by this client.
   std::unordered_set<ray::ObjectID> object_ids;
+
+  std::unordered_set<ray::ObjectID> pending_delete_objects_;
 };
 
 std::ostream &operator<<(std::ostream &os, const std::shared_ptr<Client> &client);

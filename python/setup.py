@@ -107,6 +107,7 @@ class SetupSpec:
 
 
 build_type = os.getenv("RAY_DEBUG_BUILD")
+#build_type = "debug"
 if build_type == "debug":
     BUILD_TYPE = BuildType.DEBUG
 elif build_type == "asan":
@@ -149,6 +150,7 @@ ray_files = [
     "ray/_raylet" + pyd_suffix,
     "ray/core/src/ray/gcs/gcs_server" + exe_suffix,
     "ray/core/src/ray/raylet/raylet" + exe_suffix,
+#    "ray/core/src/ray/raylet/plasma_store" + exe_suffix,
 ]
 
 if BUILD_JAVA or os.path.exists(os.path.join(ROOT_DIR, "ray/jars/ray_dist.jar")):
@@ -585,6 +587,8 @@ def build(build_python, build_java, build_cpp):
         bazel_flags.extend(["--config=asan-build"])
     if setup_spec.build_type == BuildType.TSAN:
         bazel_flags.extend(["--config=tsan"])
+    bazel_flags.extend(["--spawn_strategy=standalone"])
+    bazel_flags.extend(["--subcommands"])
 
     return bazel_invoke(
         subprocess.check_call,

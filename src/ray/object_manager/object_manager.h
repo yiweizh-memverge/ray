@@ -50,8 +50,7 @@ namespace ray {
 
 struct ObjectStoreConfig {
   std::string store_socket_name;
-  std::string daemon_addr;
-  int32_t daemon_port = 0;
+  int32_t plasma_store_port = 0;
   std::string controller_addr;
   int controller_port;
   std::string cxl_vendor;

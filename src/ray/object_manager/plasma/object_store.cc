@@ -30,6 +30,7 @@ const LocalObject *ObjectStore::CreateObject(const ray::ObjectInfo &object_info,
   RAY_CHECK(object_table_.count(object_info.object_id) == 0)
       << object_info.object_id << " already exists!";
   auto object_size = object_info.GetObjectSize();
+  object_size = AlignMemSize(object_info.data_size) + AlignMemSize(object_info.metadata_size);
   auto allocation = fallback_allocate ? allocator_.FallbackAllocate(object_size)
                                       : allocator_.Allocate(object_size);
   RAY_LOG_EVERY_MS(INFO, 10 * 60 * 1000)
@@ -69,12 +70,16 @@ const LocalObject *ObjectStore::SealObject(const ObjectID &object_id) {
   return entry;
 }
 
-bool ObjectStore::DeleteObject(const ObjectID &object_id) {
+bool ObjectStore::DeleteObject(const ObjectID &object_id, Allocation* alloc) {
   auto entry = GetMutableObject(object_id);
   if (entry == nullptr) {
     return false;
   }
-  allocator_.Free(std::move(entry->allocation));
+  if (alloc) {
+    *alloc = std::move(entry->allocation);
+  } else {
+    allocator_.Free(std::move(entry->allocation));
+  }
   object_table_.erase(object_id);
   return true;
 }

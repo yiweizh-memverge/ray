@@ -66,7 +66,7 @@ class IObjectStore {
   /// \return
   ///   - false if such object doesn't exist.
   ///   - true if deleted.
-  virtual bool DeleteObject(const ObjectID &object_id) = 0;
+  virtual bool DeleteObject(const ObjectID &object_id, Allocation*) = 0;
 };
 
 // ObjectStore implements IObjectStore. It uses IAllocator
@@ -83,7 +83,7 @@ class ObjectStore : public IObjectStore {
 
   const LocalObject *SealObject(const ObjectID &object_id) override;
 
-  bool DeleteObject(const ObjectID &object_id) override;
+  bool DeleteObject(const ObjectID &object_id, Allocation*) override;
 
  private:
   friend struct ObjectStatsCollectorTest;

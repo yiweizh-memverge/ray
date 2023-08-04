@@ -27,7 +27,6 @@
 
 DEFINE_string(raylet_socket_name, "", "The socket name of raylet.");
 DEFINE_string(store_socket_name, "", "The socket name of object store.");
-DEFINE_string(store_address, "", "The Network address of the store daemon.");
 DEFINE_int32(plasma_store_port, 0, "The listen port the Plasma object store.");
 DEFINE_string(cxl_controller_addr, "", "The Network address of the CXL controller.");
 DEFINE_int32(cxl_controller_port, 0, "The Network port of the CXL controller.");
@@ -72,6 +71,8 @@ DEFINE_int32(ray_debugger_external, 0, "Make Ray debugger externally accessible.
 DEFINE_int64(object_store_memory, -1, "The initial memory of the object store.");
 DEFINE_string(node_name, "", "The user-provided identifier or name for this node.");
 DEFINE_string(session_name, "", "Session name (ClusterID) of the cluster.");
+DEFINE_bool(start_plasma, false, "Start plasma store only.");
+
 #ifdef __linux__
 DEFINE_string(plasma_directory,
               "/dev/shm",
@@ -84,6 +85,29 @@ DEFINE_string(plasma_directory,
 DEFINE_bool(huge_pages, false, "Enable huge pages.");
 #ifndef RAYLET_TEST
 
+void StartPlasma() {
+  std::string socket_name = std::string("0.0.0.0:") + std::to_string(FLAGS_plasma_store_port);
+  plasma::plasma_store_runner.reset(
+    new plasma::PlasmaStoreRunner(socket_name,
+                                  8L * 1024 * 1024 * 1024,
+                                  0,
+                                  "/tmp/plasma",
+                                  "/tmp/plasma",
+                                  FLAGS_plasma_store_port,
+                                  FLAGS_cxl_controller_addr,
+                                  FLAGS_cxl_controller_port,
+                                  FLAGS_cxl_vendor,
+                                  FLAGS_cxl_model,
+                                  FLAGS_cxl_serial,
+                                  FLAGS_cxl_segment));
+
+
+  auto store_thread = std::thread(&plasma::PlasmaStoreRunner::StartDefault,
+                                  dynamic_cast<plasma::PlasmaStoreRunner*>(plasma::plasma_store_runner.get())
+                                 );
+  store_thread.join();
+}
+
 int main(int argc, char *argv[]) {
   InitShutdownRAII ray_log_shutdown_raii(ray::RayLog::StartRayLog,
                                          ray::RayLog::ShutDownRayLog,
@@ -94,6 +118,11 @@ int main(int argc, char *argv[]) {
   ray::RayLog::InstallTerminateHandler();
 
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+
+  if (FLAGS_start_plasma) {
+    StartPlasma();
+    return 0;
+  }
   const std::string raylet_socket_name = FLAGS_raylet_socket_name;
   const std::string store_socket_name = FLAGS_store_socket_name;
   const std::string node_name =
@@ -222,8 +251,7 @@ int main(int argc, char *argv[]) {
         node_manager_config.record_metrics_period_ms =
             RayConfig::instance().metrics_report_interval_ms() / 2;
         node_manager_config.object_store_config.store_socket_name = store_socket_name;
-        node_manager_config.object_store_config.daemon_addr = FLAGS_store_address;
-        node_manager_config.object_store_config.daemon_port = FLAGS_plasma_store_port;
+        node_manager_config.object_store_config.plasma_store_port = FLAGS_plasma_store_port;
         node_manager_config.object_store_config.controller_addr = FLAGS_cxl_controller_addr;
         node_manager_config.object_store_config.controller_port = FLAGS_cxl_controller_port;
         node_manager_config.object_store_config.cxl_vendor = FLAGS_cxl_vendor;

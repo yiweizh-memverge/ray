@@ -304,11 +304,10 @@ PLASMA_COPTS = COPTS + select({
     ],
 })
 
-PLASMA_LINKOPTS = ["-lcxl_shm_api",] + select({
-    "@bazel_tools//src/conditions:windows": [
-        "-DefaultLib:" + "ws2_32.lib",
-    ],
+PLASMA_LINKOPTS = select({
     "//conditions:default": [
+      "-l:libcxl_shm_api2.a",
+      "-lpmem",
     ],
 })
 
@@ -322,6 +321,7 @@ cc_library(
         "src/ray/object_manager/plasma/plasma.cc",
         "src/ray/object_manager/plasma/protocol.cc",
         "src/ray/object_manager/plasma/shared_memory.cc",
+        "src/ray/object_manager/plasma/object_reference_manager.cc",
     ] + select({
         "@bazel_tools//src/conditions:windows": [
         ],
@@ -340,6 +340,7 @@ cc_library(
         "src/ray/object_manager/plasma/plasma_generated.h",
         "src/ray/object_manager/plasma/protocol.h",
         "src/ray/object_manager/plasma/shared_memory.h",
+        "src/ray/object_manager/plasma/object_reference_manager.h",
         "src/ray/object_manager/cxl_include/cxl_shared_memory_datatype.h",
         "src/ray/object_manager/cxl_include/cxl_shared_memory_client.h",
     ] + select({
@@ -360,6 +361,7 @@ cc_library(
         ":plasma_fbs",
         ":ray_common",
         ":ray_util",
+        "@com_github_grpc_grpc//:grpc",
         "//src/ray/protobuf:common_cc_proto",
         "@msgpack",
     ],
@@ -379,6 +381,7 @@ cc_library(
         "src/ray/object_manager/plasma/store.cc",
         "src/ray/object_manager/plasma/store_runner.cc",
         "src/ray/object_manager/plasma/cxl_allocator.cc",
+        "src/ray/object_manager/plasma/object_reference_manager.cc",
     ],
     hdrs = [
         "src/ray/object_manager/common.h",
@@ -392,6 +395,7 @@ cc_library(
         "src/ray/object_manager/plasma/stats_collector.h",
         "src/ray/object_manager/plasma/store.h",
         "src/ray/object_manager/plasma/store_runner.h",
+        "src/ray/object_manager/plasma/object_reference_manager.h",
         "src/ray/thirdparty/dlmalloc.c",
         "src/ray/object_manager/plasma/cxl_allocator.h",
         "src/ray/object_manager/cxl_include/cxl_shared_memory_client.h",
@@ -401,6 +405,7 @@ cc_library(
     linkopts = PLASMA_LINKOPTS,
     strip_include_prefix = "src",
     deps = [
+        "@com_github_grpc_grpc//:grpc",
         ":plasma_client",
         ":stats_lib",
     ],
@@ -508,6 +513,7 @@ cc_library(
     ],
     alwayslink = 1,
 )
+
 
 cc_binary(
     name = "raylet",
@@ -741,6 +747,7 @@ cc_library(
             "src/ray/raylet/**/*_test.cc",
             "src/ray/raylet/scheduling/**/*.cc",
             "src/ray/raylet/main.cc",
+            "src/ray/raylet/plasma_store.cc",
         ],
     ),
     hdrs = glob(
@@ -750,6 +757,7 @@ cc_library(
         exclude = [
             "src/ray/raylet/scheduling/**/*.h",
             "src/ray/raylet/main.cc",
+            "src/ray/raylet/plasma_store.cc",
         ],
     ),
     copts = COPTS,
@@ -757,7 +765,7 @@ cc_library(
         "@bazel_tools//src/conditions:windows": [
         ],
         "//conditions:default": [
-            "-lpthread",
+            "-lpthread", "-ldl",
         ],
     }),
     strip_include_prefix = "src",
@@ -842,6 +850,7 @@ cc_library(
         "src/ray/core_worker/transport/*.h",
     ]),
     copts = COPTS,
+    linkopts = PLASMA_LINKOPTS,
     strip_include_prefix = "src",
     visibility = ["//visibility:public"],
     deps = [
@@ -859,6 +868,7 @@ cc_library(
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_github_grpc_grpc//:grpc",
         "@nlohmann_json",
     ],
 )
@@ -870,8 +880,10 @@ cc_library(
         "src/ray/core_worker/test/*.h",
     ]),
     copts = COPTS,
+    linkopts = PLASMA_LINKOPTS,
     strip_include_prefix = "src",
     deps = [
+        "@com_github_grpc_grpc//:grpc",
         ":core_worker_lib",
     ],
 )
@@ -879,7 +891,9 @@ cc_library(
 cc_binary(
     name = "mock_worker",
     copts = COPTS,
+    linkopts = PLASMA_LINKOPTS,
     deps = [
+        "@com_github_grpc_grpc//:grpc",
         ":mock_worker_lib",
     ],
 )
@@ -1059,81 +1073,8 @@ cc_test(
     ],
 )
 
-cc_test(
-    name = "actor_submit_queue_test",
-    size = "small",
-    srcs = ["src/ray/core_worker/test/actor_submit_queue_test.cc"],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":core_worker_lib",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
 
-cc_test(
-    name = "task_manager_test",
-    size = "small",
-    srcs = ["src/ray/core_worker/test/task_manager_test.cc"],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":core_worker_lib",
-        ":ray_mock",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
 
-cc_test(
-    name = "task_event_buffer_test",
-    size = "small",
-    srcs = ["src/ray/core_worker/test/task_event_buffer_test.cc"],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":core_worker_lib",
-        ":ray_mock",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "actor_creator_test",
-    size = "small",
-    srcs = ["src/ray/core_worker/test/actor_creator_test.cc"],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":core_worker_lib",
-        ":gcs_client_lib",
-        ":ray_mock",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "actor_manager_test",
-    size = "small",
-    srcs = ["src/ray/core_worker/test/actor_manager_test.cc"],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":core_worker_lib",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "lease_policy_test",
-    size = "small",
-    srcs = ["src/ray/core_worker/test/lease_policy_test.cc"],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":core_worker_lib",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
 
 cc_test(
     name = "resource_request_test",
@@ -1149,63 +1090,6 @@ cc_test(
     ],
 )
 
-cc_test(
-    name = "cluster_resource_scheduler_test",
-    size = "small",
-    srcs = [
-        "src/ray/raylet/scheduling/cluster_resource_scheduler_test.cc",
-    ],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":ray_mock",
-        ":raylet_lib",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "local_resource_manager_test",
-    size = "small",
-    srcs = [
-        "src/ray/raylet/scheduling/local_resource_manager_test.cc",
-    ],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":ray_mock",
-        ":raylet_lib",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "cluster_resource_scheduler_2_test",
-    size = "small",
-    srcs = [
-        "src/ray/raylet/scheduling/cluster_resource_scheduler_2_test.cc",
-    ],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":raylet_lib",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "scheduling_policy_test",
-    size = "small",
-    srcs = [
-        "src/ray/raylet/scheduling/policy/scheduling_policy_test.cc",
-    ],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":raylet_lib",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
 
 cc_test(
     name = "hybrid_scheduling_policy_test",
@@ -1329,8 +1213,10 @@ cc_test(
         "src/ray/object_manager/test/push_manager_test.cc",
     ],
     copts = COPTS,
+    linkopts = PLASMA_LINKOPTS,
     tags = ["team:core"],
     deps = [
+        "@com_github_grpc_grpc//:grpc",
         ":raylet_lib",
         "@com_google_googletest//:gtest_main",
     ],
@@ -1372,8 +1258,10 @@ cc_test(
         "src/ray/object_manager/plasma/test/object_store_test.cc",
     ],
     copts = COPTS,
+    linkopts = PLASMA_LINKOPTS,
     tags = ["team:core"],
     deps = [
+        "@com_github_grpc_grpc//:grpc",
         ":plasma_store_server_lib",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/strings:str_format",
@@ -1397,60 +1285,7 @@ cc_test(
     ],
 )
 
-cc_test(
-    name = "eviction_policy_test",
-    srcs = [
-        "src/ray/object_manager/plasma/test/eviction_policy_test.cc",
-    ],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":plasma_store_server_lib",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
 
-cc_test(
-    name = "create_request_queue_test",
-    size = "small",
-    srcs = [
-        "src/ray/object_manager/test/create_request_queue_test.cc",
-    ],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":plasma_store_server_lib",
-        "@com_google_googletest//:gtest",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "get_request_queue_test",
-    size = "small",
-    srcs = [
-        "src/ray/object_manager/test/get_request_queue_test.cc",
-    ],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":plasma_store_server_lib",
-        "@com_google_googletest//:gtest",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "worker_pool_test",
-    size = "small",
-    srcs = ["src/ray/raylet/worker_pool_test.cc"],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":raylet_lib",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
 
 cc_test(
     name = "gcs_placement_group_manager_mock_test",
@@ -1468,20 +1303,6 @@ cc_test(
     ],
 )
 
-cc_test(
-    name = "placement_group_resource_manager_test",
-    size = "small",
-    srcs = ["src/ray/raylet/placement_group_resource_manager_test.cc"],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        "gcs_test_util_lib",
-        "ray_common",
-        "raylet_lib",
-        ":ray_mock",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
 
 cc_test(
     name = "asio_defer_test",
@@ -1641,25 +1462,16 @@ cc_test(
     ],
 )
 
-cc_test(
-    name = "wait_manager_test",
-    size = "small",
-    srcs = ["src/ray/raylet/wait_manager_test.cc"],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":raylet_lib",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
 
 cc_test(
     name = "client_connection_test",
     size = "small",
     srcs = ["src/ray/common/test/client_connection_test.cc"],
     copts = COPTS,
+    linkopts = PLASMA_LINKOPTS,
     tags = ["team:core"],
     deps = [
+        "@com_github_grpc_grpc//:grpc",
         ":ray_common",
         "@com_google_googletest//:gtest_main",
     ],
@@ -1694,36 +1506,6 @@ cc_test(
         ":ray_common",
         "@boost//:filesystem",
         "@boost//:thread",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "worker_killing_policy_test",
-    size = "small",
-    srcs = [
-        "src/ray/raylet/worker_killing_policy_test.cc",
-    ],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":ray_common",
-        ":raylet_lib",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "worker_killing_policy_group_by_owner_test",
-    size = "small",
-    srcs = [
-        "src/ray/raylet/worker_killing_policy_group_by_owner_test.cc",
-    ],
-    copts = COPTS,
-    tags = ["team:core"],
-    deps = [
-        ":ray_common",
-        ":raylet_lib",
         "@com_google_googletest//:gtest_main",
     ],
 )

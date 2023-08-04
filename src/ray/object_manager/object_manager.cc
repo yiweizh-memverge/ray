@@ -19,6 +19,7 @@
 #include "ray/common/common_protocol.h"
 #include "ray/stats/metric_defs.h"
 #include "ray/util/util.h"
+#include "ray/util/filesystem.h"
 
 namespace asio = boost::asio;
 
@@ -29,26 +30,54 @@ ObjectStoreRunner::ObjectStoreRunner(const ObjectManagerConfig &config,
                                      std::function<void()> object_store_full_callback,
                                      AddObjectCallback add_object_callback,
                                      DeleteObjectCallback delete_object_callback) {
-  if (config.object_store_config.daemon_port == 0 || 
-      config.object_store_config.controller_port == 0) {
+  bool start_store = true;
+  if (config.object_store_config.plasma_store_port == 0 &&
+      !config.object_store_config.store_socket_name.empty()) {
+    if (config.object_store_config.store_socket_name.find("tcp://") == 0 ||
+        !ray::IsDirSep(config.object_store_config.store_socket_name[0])) {
+      start_store = false;
+    }
+  }
+  RAY_LOG(INFO) << "Socket path: " << config.object_store_config.store_socket_name
+                << ". Will start local store: " << start_store; 
+  if (start_store) { 
     plasma::plasma_store_runner.reset(
         new plasma::PlasmaStoreRunner(config.object_store_config.store_socket_name,
                                       config.object_store_memory,
                                       config.huge_pages,
                                       config.plasma_directory,
-                                      config.fallback_directory));
+                                      config.fallback_directory,
+                                      config.object_store_config.plasma_store_port,
+                                      config.object_store_config.controller_addr,
+                                      config.object_store_config.controller_port,
+                                      config.object_store_config.cxl_vendor,
+                                      config.object_store_config.cxl_model,
+                                      config.object_store_config.cxl_serial,
+                                      config.object_store_config.cxl_segment));
     // Initialize object store.
-    store_thread_ = std::thread(&plasma::PlasmaStoreRunner::Start,
-                                plasma::plasma_store_runner.get(),
+  store_thread_ = std::thread(&plasma::PlasmaStoreRunner::Start,
+                              dynamic_cast<plasma::PlasmaStoreRunner*>(plasma::plasma_store_runner.get()),
+                              spill_objects_callback,
+                              object_store_full_callback,
+                              add_object_callback,
+                              delete_object_callback);
+
+  } else {
+    RAY_LOG(INFO) << "Start the object storage proxy";
+    plasma::plasma_store_runner.reset(new plasma::PlasmaStoreRunnerDelegator(config.object_store_config.store_socket_name));
+    // Initialize object store.
+    store_thread_ = std::thread(&plasma::PlasmaStoreRunnerDelegator::Start,
+                                dynamic_cast<plasma::PlasmaStoreRunnerDelegator*>(plasma::plasma_store_runner.get()),
                                 spill_objects_callback,
                                 object_store_full_callback,
                                 add_object_callback,
                                 delete_object_callback);
-    // Sleep for sometime until the store is working. This can suppress some
-    // connection warnings.
-    std::this_thread::sleep_for(std::chrono::microseconds(500));
-    thread_started_ = true;
+
   }
+  // Sleep for sometime until the store is working. This can suppress some
+  // connection warnings.
+  std::this_thread::sleep_for(std::chrono::microseconds(500));
+  thread_started_ = true;
 }
 
 ObjectStoreRunner::~ObjectStoreRunner() {

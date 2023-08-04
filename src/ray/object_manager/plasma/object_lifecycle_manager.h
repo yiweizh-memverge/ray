@@ -101,7 +101,7 @@ class IObjectLifecycleManager {
 class ObjectLifecycleManager : public IObjectLifecycleManager {
  public:
   ObjectLifecycleManager(IAllocator &allocator,
-                         ray::DeleteObjectCallback delete_object_callback);
+                         InternalDeleteObjectCallback delete_object_callback);
 
   std::pair<const LocalObject *, flatbuf::PlasmaError> CreateObject(
       const ray::ObjectInfo &object_info,
@@ -147,7 +147,7 @@ class ObjectLifecycleManager : public IObjectLifecycleManager {
   // Test only
   ObjectLifecycleManager(std::unique_ptr<IObjectStore> store,
                          std::unique_ptr<IEvictionPolicy> eviction_policy,
-                         ray::DeleteObjectCallback delete_object_callback,
+                         InternalDeleteObjectCallback delete_object_callback,
                          std::unique_ptr<ObjectStatsCollector> stats_collector);
 
   friend struct ObjectLifecycleManagerTest;
@@ -169,7 +169,7 @@ class ObjectLifecycleManager : public IObjectLifecycleManager {
   void DeleteObjectInternal(const ObjectID &object_id);
   std::unique_ptr<IObjectStore> object_store_;
   std::unique_ptr<IEvictionPolicy> eviction_policy_;
-  const ray::DeleteObjectCallback delete_object_callback_;
+  const InternalDeleteObjectCallback delete_object_callback_;
 
   // list of objects which will be removed immediately
   // once reference count becomes 0.

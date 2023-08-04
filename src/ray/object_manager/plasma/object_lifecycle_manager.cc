@@ -24,7 +24,7 @@ namespace plasma {
 using namespace flatbuf;
 
 ObjectLifecycleManager::ObjectLifecycleManager(
-    IAllocator &allocator, ray::DeleteObjectCallback delete_object_callback)
+    IAllocator &allocator, InternalDeleteObjectCallback delete_object_callback)
     : object_store_(std::make_unique<ObjectStore>(allocator)),
       eviction_policy_(std::make_unique<EvictionPolicy>(*object_store_, allocator)),
       delete_object_callback_(delete_object_callback),
@@ -242,11 +242,12 @@ void ObjectLifecycleManager::DeleteObjectInternal(const ObjectID &object_id) {
   stats_collector_->OnObjectDeleting(*entry);
   earger_deletion_objects_.erase(object_id);
   eviction_policy_->RemoveObject(object_id);
-  object_store_->DeleteObject(object_id);
+  Allocation alloc;
+  object_store_->DeleteObject(object_id, aborted ? nullptr : &alloc);
 
   if (!aborted) {
     // only send notification if it's not aborted.
-    delete_object_callback_(object_id);
+    delete_object_callback_(object_id, &alloc);
   }
 }
 
@@ -281,7 +282,7 @@ void ObjectLifecycleManager::GetDebugDump(std::stringstream &buffer) const {
 ObjectLifecycleManager::ObjectLifecycleManager(
     std::unique_ptr<IObjectStore> store,
     std::unique_ptr<IEvictionPolicy> eviction_policy,
-    ray::DeleteObjectCallback delete_object_callback,
+    InternalDeleteObjectCallback delete_object_callback,
     std::unique_ptr<ObjectStatsCollector> stats_collector)
     : object_store_(std::move(store)),
       eviction_policy_(std::move(eviction_policy)),

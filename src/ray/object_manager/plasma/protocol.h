@@ -240,4 +240,47 @@ Status ReadPlasmaCXLShmInfoReply(const uint8_t* data, size_t size,
                                  std::string* cxl_serial,
                                  int64_t* segment);
 
+Status SendRegisterEventListenerRequest(const std::shared_ptr<StoreConn> &store_conn);
+
+Status SendRegisterEventListenerReply(const std::shared_ptr<Client> &client);
+
+
+Status SendRetrievePlasmaEventReply(const std::shared_ptr<Client> &client, int type, const ray::ObjectInfo& data, void* buff_ptr = nullptr, size_t len = 0);
+
+Status ReadPlasmaEvent(const uint8_t* data, size_t size, int* type, ray::ObjectInfo* info, void** ptr, size_t* len);
+
+Status SendCheckObjectSpillableRequest(const std::shared_ptr<StoreConn>& store_conn, const ray::ObjectID& obj_id);
+
+Status SendCheckObjectSpillableReply(const std::shared_ptr<Client>& client, bool spillable);
+
+Status ReadPlasmaCheckObjectSpillableRequest(const uint8_t* data, size_t size, ObjectID* obj_id);
+
+Status ReadPlasmaCheckObjectSpillableReply(const uint8_t* data, size_t size, bool* spillable);
+
+Status SendPlasmaGetConsumedBytesRequest(const std::shared_ptr<StoreConn>& store_conn);
+
+Status SendPlasmaGetConsumedBytesReply(const std::shared_ptr<Client>& client, int64_t bytes);
+
+Status SendPlasmaGetFallbackAllocatedRequest(const std::shared_ptr<StoreConn>& store_conn);
+
+Status SendPlasmaGetFallbackAllocatedReply(const std::shared_ptr<Client>& client, int64_t bytes);
+
+Status SendPlasmaGetAvailableMemoryRequest(const std::shared_ptr<StoreConn>& store_conn);
+
+Status SendPlasmaGetAvailableMemoryReply(const std::shared_ptr<Client>& client, int64_t bytes);
+
+Status ReadPlasmaGetConsumedBytesReply(const uint8_t* data, size_t size, int64_t* bytes);
+
+Status ReadPlasmaGetFallbackAllocatedReply(const uint8_t* data, size_t size, int64_t* bytes);
+
+Status ReadPlasmaGetAvailableMemoryReply(const uint8_t* data, size_t size, int64_t* bytes);
+
+Status SendPlasmaObjectDeleteReply(const std::shared_ptr<StoreConn>& store_conn, const ObjectID& obj_id);
+
+Status ReadPlasmaObjectDeleteReply(const uint8_t* data, size_t size, ObjectID* obj_id); 
+
+Status SendPlasmaSpillStatus(const std::shared_ptr<StoreConn>& client, bool);
+
+Status ReadPlasmaSpillStatus(const uint8_t* data, size_t size, int* spill);
+
 }  // namespace plasma
