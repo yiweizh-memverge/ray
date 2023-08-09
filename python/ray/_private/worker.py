@@ -1118,6 +1118,9 @@ def init(
     num_cpus: Optional[int] = None,
     num_gpus: Optional[int] = None,
     resources: Optional[Dict[str, float]] = None,
+    plugin_name: Optional[str] = None,
+    plugin_path: Optional[str] = None,
+    plugin_params: Optional[Dict[str, Any]] = None,
     object_store_memory: Optional[int] = None,
     local_mode: bool = False,
     ignore_reinit_error: bool = False,
@@ -1197,6 +1200,9 @@ def init(
             raylet. By default, this is set based on detected GPUs.
         resources: A dictionary mapping the names of custom resources to the
             quantities for them available.
+        plugin_name: The name of the object store plugin.
+        plugin_path: The path to the object store plugin shared library.
+        plugin_params: The parameters of the object store plugin.
         object_store_memory: The amount of memory (in bytes) to start the
             object store with. By default, this is automatically set based on
             available system memory.
@@ -1496,6 +1502,9 @@ def init(
             dashboard_host=dashboard_host,
             dashboard_port=dashboard_port,
             memory=_memory,
+            plugin_name = plugin_name,
+            plugin_path = plugin_path,
+            plugin_params = plugin_params,
             object_store_memory=object_store_memory,
             redis_max_memory=_redis_max_memory,
             plasma_store_socket_name=None,
@@ -1559,6 +1568,9 @@ def init(
         ray_params = ray._private.parameter.RayParams(
             node_ip_address=node_ip_address,
             raylet_ip_address=raylet_ip_address,
+            plugin_name = plugin_name,
+            plugin_path = plugin_path,
+            plugin_params = plugin_params,
             gcs_address=gcs_address,
             redis_address=redis_address,
             redis_password=_redis_password,
@@ -1616,7 +1628,7 @@ def init(
         logger.info(info_str)
 
     connect(
-        _global_node,
+        _global_node, ## A node
         _global_node.session_name,
         mode=driver_mode,
         log_to_driver=log_to_driver,
@@ -2177,6 +2189,8 @@ def connect(
         logs_dir = ""
     else:
         logs_dir = node.get_logs_dir_path()
+
+    
     worker.core_worker = ray._raylet.CoreWorker(
         mode,
         node.plasma_store_socket_name,
@@ -2191,6 +2205,9 @@ def connect(
         driver_name,
         log_stdout_file_path,
         log_stderr_file_path,
+        node._plugin_name,
+        node._plugin_path,
+        node._plugin_params_str,
         serialized_job_config,
         node.metrics_agent_port,
         runtime_env_hash,
@@ -3231,3 +3248,4 @@ def remote(
         return _make_remote(args[0], {})
     assert len(args) == 0 and len(kwargs) > 0, ray_option_utils.remote_args_error_string
     return functools.partial(_make_remote, options=kwargs)
+

@@ -122,6 +122,9 @@ class RayParams:
 
     def __init__(
         self,
+        plugin_name: Optional[str] = None,
+        plugin_path: Optional[str] = None,
+        plugin_params: Optional[Dict[str, any]] = None,
         redis_address: Optional[str] = None,
         gcs_address: Optional[str] = None,
         num_cpus: Optional[int] = None,
@@ -177,6 +180,9 @@ class RayParams:
         session_name: Optional[str] = None,
         webui: Optional[str] = None,
     ):
+        self.plugin_name = plugin_name
+        self.plugin_path = plugin_path
+        self.plugin_params = plugin_params
         self.redis_address = redis_address
         self.gcs_address = gcs_address
         self.num_cpus = num_cpus
@@ -438,3 +444,4 @@ class RayParams:
                     port_range_str = f"from {min_port} to {max_port}"
                 ports[comp] = f"{len(port_list)} ports {port_range_str}"
         return ports
+

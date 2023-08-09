@@ -38,8 +38,11 @@
 #include "ray/util/event_label.h"
 #include "ray/util/sample.h"
 #include "ray/util/util.h"
+#include "ray/object_manager/plugin_manager.h"
 
 namespace {
+
+ray::PluginManager& plugin_manager = ray::PluginManager::GetInstance();
 
 #define RAY_CHECK_ENUM(x, y) \
   static_assert(static_cast<int>(x) == static_cast<int>(y), "protocol mismatch")
@@ -229,6 +232,7 @@ NodeManager::NodeManager(instrumented_io_context &io_service,
             ref.set_object_id(object_id.Binary());
             MarkObjectsAsFailed(error_type, {ref}, JobID::Nil());
           }),
+      store_client_(plugin_manager.CreateObjectStoreClientInstance(object_manager_config.plugin_name)),
       periodical_runner_(io_service),
       report_resources_period_ms_(config.report_resources_period_ms),
       temp_dir_(config.temp_dir),
@@ -291,7 +295,6 @@ NodeManager::NodeManager(instrumented_io_context &io_service,
           RayConfig::instance().min_memory_free_bytes(),
           RayConfig::instance().memory_monitor_refresh_ms(),
           CreateMemoryUsageRefreshCallback())) {
-  RAY_LOG(INFO) << "Initializing NodeManager with ID " << self_node_id_;
   cluster_resource_scheduler_ = std::make_shared<ClusterResourceScheduler>(
       scheduling::NodeID(self_node_id_.Binary()),
       config.resource_config.ToResourceMap(),
@@ -368,7 +371,7 @@ NodeManager::NodeManager(instrumented_io_context &io_service,
       [this]() { cluster_task_manager_->ScheduleAndDispatchTasks(); },
       RayConfig::instance().worker_cap_initial_backoff_delay_ms());
 
-  RAY_CHECK_OK(store_client_.Connect(config.store_socket_name.c_str()));
+  RAY_CHECK_OK(store_client_->Connect(config.store_socket_name.c_str(),""));
   // Run the node manger rpc server.
   node_manager_server_.RegisterService(node_manager_service_);
   node_manager_server_.RegisterService(agent_manager_service_);
@@ -2101,7 +2104,7 @@ void NodeManager::MarkObjectsAsFailed(
                    << error_type;
     std::shared_ptr<Buffer> data;
     Status status;
-    status = store_client_.TryCreateImmediately(
+    status = store_client_->TryCreateImmediately(
         object_id,
         ref.owner_address(),
         0,
@@ -2110,7 +2113,7 @@ void NodeManager::MarkObjectsAsFailed(
         &data,
         plasma::flatbuf::ObjectSource::ErrorStoredByRaylet);
     if (status.ok()) {
-      status = store_client_.Seal(object_id);
+      status = store_client_->Seal(object_id);
     }
     if (!status.ok() && !status.IsObjectExists()) {
       RAY_LOG(DEBUG) << "Marking plasma object failed " << object_id;
@@ -2441,7 +2444,7 @@ bool NodeManager::GetObjectsFromPlasma(const std::vector<ObjectID> &object_ids,
   // since we must wait for the plasma store's reply. We should consider using
   // an `AsyncGet` instead.
   if (!store_client_
-           .Get(object_ids, /*timeout_ms=*/0, &plasma_results, /*is_from_worker=*/false)
+           ->Get(object_ids, /*timeout_ms=*/0, &plasma_results, /*is_from_worker=*/false)
            .ok()) {
     return false;
   }
@@ -3084,3 +3087,4 @@ void NodeManager::ReportWorkerOOMKillStats() {
 }  // namespace raylet
 
 }  // namespace ray
+

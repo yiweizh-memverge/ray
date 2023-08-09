@@ -33,7 +33,6 @@ from ray._private.utils import open_log, try_to_create_directory, try_to_symlink
 # using logging.basicConfig in its entry/init points.
 logger = logging.getLogger(__name__)
 
-
 class Node:
     """An encapsulation of the Ray processes on a single node.
 
@@ -284,6 +283,38 @@ class Node:
         # Start processes.
         if head:
             self.start_head_processes()
+
+        if ray_params.plugin_name:
+            self._plugin_name = ray_params.plugin_name
+            os.environ[ray_constants.RAY_PLUGIN_NAME_ENVIRONMENT_VARIABLE] = ray_params.plugin_name
+        else:
+            env_plugin_name =  os.environ.get(ray_constants.RAY_PLUGIN_NAME_ENVIRONMENT_VARIABLE)
+            if env_plugin_name is not None and env_plugin_name != "":
+                self._plugin_name = env_plugin_name
+            else:
+                self._plugin_name = "default"
+
+
+        if ray_params.plugin_path:
+            self._plugin_path = ray_params.plugin_path
+            os.environ[ray_constants.RAY_PLUGIN_PATH_ENVIRONMENT_VARIABLE] = ray_params.plugin_path
+        else:
+            env_plugin_path =  os.environ.get(ray_constants.RAY_PLUGIN_PATH_ENVIRONMENT_VARIABLE)
+            if env_plugin_path is not None and env_plugin_path != "":
+                self._plugin_path = env_plugin_path
+            else:
+                self._plugin_path = ""
+
+
+        if ray_params.plugin_params:
+            self._plugin_params_str = json.dumps(ray_params.plugin_params)
+            os.environ[ray_constants.RAY_PLUGIN_PARAMS_ENVIRONMENT_VARIABLE_STR] = ray_params.plugin_params
+        else:
+            env_plugin_params_str =  os.environ.get(ray_constants.RAY_PLUGIN_PARAMS_ENVIRONMENT_VARIABLE_STR)
+            if env_plugin_params_str is not None and env_plugin_params_str != "":
+                self._plugin_params_str = env_plugin_params_str
+            else:
+                self._plugin_params_str = "{}"
 
         if not connect_only:
             self.start_ray_processes()
@@ -987,6 +1018,9 @@ class Node:
         self,
         plasma_directory: str,
         object_store_memory: int,
+        plugin_name: str, 
+        plugin_path: str,
+        plugin_params: str,
         use_valgrind: bool = False,
         use_profiler: bool = False,
     ):
@@ -1016,6 +1050,9 @@ class Node:
             self.get_resource_spec(),
             plasma_directory,
             object_store_memory,
+            plugin_name,
+            plugin_path,
+            plugin_params,
             self.session_name,
             is_head_node=self.is_head(),
             min_worker_port=self._ray_params.min_worker_port,
@@ -1211,7 +1248,10 @@ class Node:
             plasma_directory=self._ray_params.plasma_directory,
             huge_pages=self._ray_params.huge_pages,
         )
-        self.start_raylet(plasma_directory, object_store_memory)
+
+        self.start_raylet(plasma_directory, object_store_memory, self._plugin_name, 
+                                                                 self._plugin_path,  
+                                                                 self._plugin_params_str)
         if self._ray_params.include_log_monitor:
             self.start_log_monitor()
 
@@ -1580,3 +1620,4 @@ class Node:
                 "redis" if os.environ.get("RAY_REDIS_ADDRESS") is not None else "memory"
             )
             record_extra_usage_tag(TagKey.GCS_STORAGE, gcs_storage_type)
+

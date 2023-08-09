@@ -25,7 +25,7 @@
 #include <mutex>
 #include <random>
 #include <thread>
-
+#include <dlfcn.h>
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/time/clock.h"
@@ -45,6 +45,7 @@
 #include "ray/rpc/object_manager/object_manager_server.h"
 #include "src/ray/protobuf/common.pb.h"
 #include "src/ray/protobuf/node_manager.pb.h"
+#include "ray/object_manager/plugin_manager.h"
 
 namespace ray {
 
@@ -76,6 +77,12 @@ struct ObjectManagerConfig {
   int rpc_service_threads_number;
   /// Initial memory allocation for store.
   int64_t object_store_memory = -1;
+  /// The name of the plugin.
+  std::string plugin_name;
+  /// The path to the plugin shared library.
+  std::string plugin_path;
+  /// The parameters of the plugin.
+  std::string plugin_params;
   /// The directory for shared memory files.
   std::string plasma_directory;
   /// The directory for fallback allocation files.
@@ -91,6 +98,7 @@ struct LocalObjectInfo {
 class ObjectStoreRunner {
  public:
   ObjectStoreRunner(const ObjectManagerConfig &config,
+                    std::unique_ptr<plasma::ObjectStoreRunnerInterface> store_runner,
                     SpillObjectsCallback spill_objects_callback,
                     std::function<void()> object_store_full_callback,
                     AddObjectCallback add_object_callback,
@@ -255,6 +263,8 @@ class ObjectManager : public ObjectManagerInterface,
 
   bool PullManagerHasPullsQueued() const { return pull_manager_->HasPullsQueued(); }
 
+  //std::shared_ptr<plasma::ObjectStoreClientInterface> CreateObjectStoreClientInstance();
+
  private:
   friend class TestObjectManager;
 
@@ -401,15 +411,18 @@ class ObjectManager : public ObjectManagerInterface,
   /// The object directory interface to access object information.
   IObjectDirectory *object_directory_;
 
+  //PluginManager &plugin_manager_;
+
   /// Object store runner.
   std::unique_ptr<ObjectStoreRunner> object_store_internal_;
 
   /// Used by the buffer pool to read and write objects in the local store
   /// during object transfers.
-  std::shared_ptr<plasma::PlasmaClient> buffer_pool_store_client_;
+  std::shared_ptr<plasma::ObjectStoreClientInterface> buffer_pool_store_client_;
 
   /// Manages accesses to local objects for object transfers.
-  ObjectBufferPool buffer_pool_;
+  //ObjectBufferPool buffer_pool_;
+  std::shared_ptr<ObjectBufferPool> buffer_pool_;
 
   /// Multi-thread asio service, deal with all outgoing and incoming RPC request.
   instrumented_io_context rpc_service_;
@@ -491,4 +504,7 @@ class ObjectManager : public ObjectManagerInterface,
   size_t num_chunks_received_failed_due_to_plasma_ = 0;
 };
 
+// extern PluginManager& plugin_manager_;
+
 }  // namespace ray
+

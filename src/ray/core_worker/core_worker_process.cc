@@ -291,3 +291,4 @@ std::shared_ptr<CoreWorker> CoreWorkerProcessImpl::GetCoreWorker() const {
 
 }  // namespace core
 }  // namespace ray
+

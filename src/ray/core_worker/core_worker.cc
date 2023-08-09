@@ -302,9 +302,12 @@ CoreWorker::CoreWorker(const CoreWorkerOptions &options, const WorkerID &worker_
     }
   };
   RAY_CHECK_OK(gcs_client_->Nodes().AsyncSubscribeToNodeChange(on_node_change, nullptr));
-
+ 
   plasma_store_provider_.reset(new CoreWorkerPlasmaStoreProvider(
       options_.store_socket,
+      options_.plugin_name,
+      options_.plugin_path,
+      options_.plugin_params,
       local_raylet_client_,
       reference_counter_,
       options_.check_signals,
@@ -3954,3 +3957,4 @@ void ClusterSizeBasedLeaseRequestRateLimiter::OnNodeChanges(
 
 }  // namespace core
 }  // namespace ray
+
